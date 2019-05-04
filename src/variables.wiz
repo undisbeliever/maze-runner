@@ -1,0 +1,14 @@
+import "memmap";
+
+in shadow {
+    struct uint32 {
+        loword : u16,
+        hiword : u16,
+    };
+
+
+    // Incremented every NMI interrupt
+    // NOTE: MUST NOT be in zeropage
+    var frame_counter : uint32;
+}
+

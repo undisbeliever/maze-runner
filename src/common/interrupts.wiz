@@ -1,0 +1,77 @@
+import "reset";
+import "../memmap";
+import "../variables";
+import "../../wiz/examples/snes/common/snes/snes";
+
+in code {
+
+#[nmi] func nmi_handler() {
+    mem16();
+    #[mem16] {
+        push(aa);
+
+        push(program_bank);
+        data_bank = pop();
+
+        frame_counter.loword++;
+        if zero {
+            frame_counter.hiword++;
+        }
+    }
+
+    // ::BUG cannot do `aa = pop()`::
+    #[mem8] {
+        a = pop();
+    }
+
+    nmireturn;
+}
+
+#[irq] func irq_handler() {
+    irqreturn;
+}
+
+// Break handler
+// Displays a simple BSOD to the screen
+#[irq] func break_handler() {
+    let BSOD_BG_COLOR = 0x3400;
+
+    mem8_idx16();
+    #[mem8, idx16] {
+        ss = xx = STACK_TOP;
+
+        push(a = 0x80);
+        data_bank = pop();
+
+        mem8_idx8();
+        #[mem8, idx8] {
+            reset_registers();
+
+            snes.ppu.cgram_address = 0;
+            snes.ppu.cgram_write_data = a = <:BSOD_BG_COLOR;
+            snes.ppu.cgram_write_data = a = >:BSOD_BG_COLOR;
+
+            snes.ppu.brightness = a = 0xf;
+        }
+
+        while true {
+        }
+    }
+}
+
+// Define interrupt vectors
+
+const @ 0x80FFE4 = break_handler;   // native cop
+const @ 0x80FFE6 = break_handler;   // native brk
+const @ 0x80FFE8 = break_handler;   // native abort
+const @ 0x80FFEA = nmi_handler;     // native nmi
+const @ 0x80FFEE = irq_handler;     // native irq
+
+const @ 0x80FFF4 = break_handler;   // emu cop
+const @ 0x80FFF8 = break_handler;   // emu abort
+const @ 0x80FFFA = break_handler;   // emu nmi
+const @ 0x80FFFC = reset;           // emu reset
+const @ 0x80FFFE = break_handler;   // emu irq
+
+}
+

@@ -20,8 +20,8 @@ func reset_registers() {
     // Disable HDMA
     snes.dma.hdma_enable = 0;
 
-    // Disable Interrupts
-    snes.ppu.irq_enable = 0;
+    // Enable NMI and autoJoy
+    snes.ppu.irq_enable = a = snes.ppu.IRQ_ENABLE_NMI | snes.ppu.IRQ_ENABLE_AUTOJOY;
 
     // Force screen blank
     snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK | snes.ppu.BRIGHTNESS_MASK;
