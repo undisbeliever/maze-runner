@@ -1,0 +1,246 @@
+
+import "../memmap";
+import "../../wiz/examples/snes/common/snes/snes";
+import "../main";
+
+in code {
+
+const blank_byte : [u8] = [0];
+
+// Reset registers to a good initial state
+//
+// NOTE: Does not set the address or mode 7 registers
+#[mem8, idx8]
+func reset_registers() {
+    push(data_bank);
+
+    push(a = 0x80);
+    data_bank = pop();
+
+    // Disable HDMA
+    snes.dma.hdma_enable = 0;
+
+    // Disable Interrupts
+    snes.ppu.irq_enable = 0;
+
+    // Force screen blank
+    snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK | snes.ppu.BRIGHTNESS_MASK;
+
+    // 8x8 and 16x16 objects
+    snes.ppu.obj_control = 0;
+
+
+    // Registers $2105 - 210c
+    // BG settings and VRAM base addresses
+    x = 0x210c - 0x2105;
+    do {
+        (0x2105 as *u8)[x] = a;
+        x--;
+    } while !negative;
+
+
+    // Registers $210d - $2114
+    // BG scroll locations
+    a = 0xff;
+    x = (4 - 1) * 2;
+    do {
+        // Set X scroll to 0;
+        (&snes.ppu.bg1_scroll_x as *u8)[x] = 0;
+        (&snes.ppu.bg1_scroll_x as *u8)[x] = 0;
+        // Set Y scroll to -1;
+        (&snes.ppu.bg1_scroll_y as *u8)[x] = a;
+        (&snes.ppu.bg1_scroll_y as *u8)[x] = a;
+        x--;
+        x--;
+    } while !negative;
+
+    // Increment VRAM by 1 word on reading/writing the high byte of VRAM
+    snes.ppu.vram_control = a = snes.ppu.VRAM_CONTROL_INCREMENT_1 | snes.ppu.VRAM_CONTROL_REMAP_MODE_0 + snes.ppu.VRAM_CONTROL_SIZE_16;
+
+
+    // Skipping Mode 7 registers
+
+
+    // Registers $2123 - $2133
+    // Window Settings, BG/OBJ designation, Color Math, Screen Mode
+    // All disabled
+    x = 0x2133 - 0x2123;
+    do {
+        (0x2123 as *u8)[x] = 0;
+        x--;
+    } while !negative;
+
+
+    // Reset the DMA registers
+    // ::ANNOY: cannot do this with 16 bit A::
+    x = 0x80 - 1;
+    do {
+        (0x4300 as *u8)[x] = 0;
+        x--;
+    } while !negative;
+
+    data_bank = pop();
+}
+
+
+// Move all OAM objects offscreen
+//
+// Sets all objects to:
+//   * size = 0
+//   * charAttr = 0
+//   * xPos = 0
+//   * yPos = 240
+//
+// NOTE: sets screen blank
+// ASSUMES: display is not in overscan mode.
+#[mem8, idx8]
+func reset_oam() {
+    push(data_bank);
+
+    push(a = 0x80);
+    data_bank = pop();
+
+
+    // Disable HDMA
+    snes.dma.hdma_enable = 0;
+
+    // Disable IRQ, enable NMI and autoJoy
+    snes.ppu.irq_enable = a = snes.ppu.IRQ_ENABLE_NMI | snes.ppu.IRQ_ENABLE_AUTOJOY;
+
+    // Force screen blank
+    snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK | snes.ppu.BRIGHTNESS_MASK;
+
+
+    snes.ppu.oam_address_l = 0;
+    snes.ppu.oam_address_h = 0;
+
+    y = 240;
+
+    for a in 0 .. 127 {
+        snes.ppu.oam_write_data = 0;        // xPos
+        snes.ppu.oam_write_data = y;        // yPos
+        snes.ppu.oam_write_data = 0;        // char
+        snes.ppu.oam_write_data = 0;        // attr
+    }
+
+    // hi table
+    for a in 0 .. 128 / 4 - 1 {
+        snes.ppu.oam_write_data = 0;
+    }
+
+    data_bank = pop();
+}
+
+
+// Clear VRAM and CGRAM
+// NOTE: sets screen blank
+// NOTE: Modifies DMA0 (set to single register, no increment, src = blank_byte)
+#[mem8, idx16]
+func reset_vram_and_cgram() {
+    push(data_bank);
+
+    push(a = 0x80);
+    data_bank = pop();
+
+
+    // Disable HDMA
+    snes.dma.hdma_enable = 0;
+
+    // Disable IRQ, enable NMI and autoJoy
+    snes.ppu.irq_enable = a = snes.ppu.IRQ_ENABLE_NMI | snes.ppu.IRQ_ENABLE_AUTOJOY;
+
+    // Force screen blank
+    snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK | snes.ppu.BRIGHTNESS_MASK;
+
+
+    // Set DMA to to transfer a fixed byte of 0
+    snes.dma0.src_address_hl = xx = &blank_byte as u16;
+    snes.dma0.src_address_bank = a = 0x80;  // ::TODO replace with #:&blank_byte when implemented::
+
+
+    // Clear VRAM
+
+    snes.ppu.vram_control = a = snes.ppu.VRAM_CONTROL_INCREMENT_1 | snes.ppu.VRAM_CONTROL_REMAP_MODE_0 + snes.ppu.VRAM_CONTROL_SIZE_16;
+    snes.ppu.vram_address_l = 0;
+    snes.ppu.vram_address_h = 0;
+
+    snes.dma0.control = a = snes.dma.CONTROL_MODE_AB | snes.dma.CONTROL_MDMA_NO_INCREMENT;
+    snes.dma0.mdma_dest = a = <:&snes.ppu.vram_write_data_l;
+    snes.dma0.mdma_size_hl = xx = 0;
+
+    snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
+
+
+    // Clear CGRAM
+
+    snes.ppu.cgram_address = 0;
+
+    snes.dma0.control = a = snes.dma.CONTROL_MODE_A | snes.dma.CONTROL_MDMA_NO_INCREMENT;
+    // snes.dma0.src already set
+    snes.dma0.mdma_dest = a = <:&snes.ppu.cgram_write_data;
+    snes.dma0.mdma_size_hl = xx = 256 * 2;
+
+    snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
+
+    data_bank = pop();
+}
+
+
+#[fallthrough] func reset() {
+    nointerrupt = true;
+    decimal = false;
+    carry = false;
+    swap_carry_emulation();
+
+    mem16_idx16();
+    #[mem16, idx16] {
+        ss = xx = STACK_TOP;
+
+        aa = 0;
+        direct_page = a;
+    }
+
+    mem8();
+    #[mem8, idx16] {
+        push(a = 0x80);
+        data_bank = pop();
+
+        snes.rom.speed = snes.rom.SPEED_SLOW;
+
+        mem8_idx8();
+        #[mem8, idx8] {
+            reset_registers();
+            reset_oam();
+        }
+
+        idx16();
+        reset_vram_and_cgram();
+
+
+        // Clear the WRAM
+
+        snes.wram.address_l = 0;
+        snes.wram.address_h = 0;
+        snes.wram.address_bank = 0;
+
+        // snes.dma0.control already set
+        // snes.dma0.src already set
+        snes.dma0.mdma_dest = a = <:&snes.wram.data;
+        snes.dma0.mdma_size_hl = xx = 0;
+
+        a = snes.dma.ENABLE_0;
+
+        // Clear first 64K of WRAM
+        snes.dma.mdma_enable = a;
+
+        // Clear second 64K of WRAM
+        // snes.dma0.mdma_size_hl is 0, no need to set it again
+        snes.dma.mdma_enable = a;
+
+
+        return main();
+    }
+}
+
+}
+

@@ -1,6 +1,9 @@
 *.swp
 *~
 
+*.sfc
+*.sym
+
 bin/
 gen/
 

@@ -1,0 +1,17 @@
+config {
+    map_mode = "lorom",
+    expansion_type = "none",
+    fastrom = false,
+    region = "ntsc",
+    title = "MAZE RUNNER          ",
+}
+
+bank code     @ 0x808000 : [constdata;  0x8000];
+bank zeropage @ 0x000000 : [vardata;     0x100];
+bank stack    @ 0x000100 : [vardata;     0x100];
+bank shadow   @ 0x000200 : [vardata;    0x1e00];
+bank wram7e   @ 0x7E2000 : [vardata;    0xe000];
+bank wram7f   @ 0x7F0000 : [vardata;   0x10000];
+
+let STACK_TOP = 0x1ff;
+
