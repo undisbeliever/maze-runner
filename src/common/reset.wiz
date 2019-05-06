@@ -1,11 +1,10 @@
 
+import "dma";
 import "../memmap";
 import "../../wiz/examples/snes/common/snes/snes";
 import "../main";
 
 in code {
-
-const blank_byte : [u8] = [0];
 
 // Reset registers to a good initial state
 //
@@ -132,60 +131,6 @@ func reset_oam() {
 }
 
 
-// Clear VRAM and CGRAM
-// NOTE: sets screen blank
-// NOTE: Modifies DMA0 (set to single register, no increment, src = blank_byte)
-#[mem8, idx16]
-func reset_vram_and_cgram() {
-    push(data_bank);
-
-    push(a = 0x80);
-    data_bank = pop();
-
-
-    // Disable HDMA
-    snes.dma.hdma_enable = 0;
-
-    // Disable IRQ, enable NMI and autoJoy
-    snes.ppu.irq_enable = a = snes.ppu.IRQ_ENABLE_NMI | snes.ppu.IRQ_ENABLE_AUTOJOY;
-
-    // Force screen blank
-    snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK | snes.ppu.BRIGHTNESS_MASK;
-
-
-    // Set DMA to to transfer a fixed byte of 0
-    snes.dma0.src_address_hl = xx = &blank_byte as u16;
-    snes.dma0.src_address_bank = a = 0x80;  // ::TODO replace with #:&blank_byte when implemented::
-
-
-    // Clear VRAM
-
-    snes.ppu.vram_control = a = snes.ppu.VRAM_CONTROL_INCREMENT_1 | snes.ppu.VRAM_CONTROL_REMAP_MODE_0 + snes.ppu.VRAM_CONTROL_SIZE_16;
-    snes.ppu.vram_address_l = 0;
-    snes.ppu.vram_address_h = 0;
-
-    snes.dma0.control = a = snes.dma.CONTROL_MODE_AB | snes.dma.CONTROL_MDMA_NO_INCREMENT;
-    snes.dma0.mdma_dest = a = <:&snes.ppu.vram_write_data_l;
-    snes.dma0.mdma_size_hl = xx = 0;
-
-    snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
-
-
-    // Clear CGRAM
-
-    snes.ppu.cgram_address = 0;
-
-    snes.dma0.control = a = snes.dma.CONTROL_MODE_A | snes.dma.CONTROL_MDMA_NO_INCREMENT;
-    // snes.dma0.src already set
-    snes.dma0.mdma_dest = a = <:&snes.ppu.cgram_write_data;
-    snes.dma0.mdma_size_hl = xx = 256 * 2;
-
-    snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
-
-    data_bank = pop();
-}
-
-
 #[fallthrough] func reset() {
     nointerrupt = true;
     decimal = false;
@@ -214,7 +159,9 @@ func reset_vram_and_cgram() {
         }
 
         idx16();
-        reset_vram_and_cgram();
+
+        clear_vram(0, 0);
+        clear_cgram(0, 256);
 
 
         // Clear the WRAM
