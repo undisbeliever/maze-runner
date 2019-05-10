@@ -33,7 +33,7 @@ func reset_registers() {
     // BG settings and VRAM base addresses
     x = 0x210c - 0x2105;
     do {
-        (0x2105 as *u8)[x] = a;
+        (0x2105 as *u8)[x] = 0;
         x--;
     } while !negative;
 
