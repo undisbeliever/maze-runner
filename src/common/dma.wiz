@@ -10,13 +10,9 @@ const blank_byte : [u8] = [0];
 // Clear a given block of vram
 // NOTE: Modifies DMA0 (set to double register, no increment, src = blank_byte)
 // NOTE: Set force blank
+// REQUIRES: DB access registers
 #[mem8, idx16]
 func clear_vram(vram_waddr : u16 in xx, size : u16 in yy) {
-    push(data_bank);
-
-    push(a = 0x80);
-    data_bank = pop();
-
     // Force blank (just in case)
     snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK | snes.ppu.BRIGHTNESS_MASK;
 
@@ -27,24 +23,19 @@ func clear_vram(vram_waddr : u16 in xx, size : u16 in yy) {
     snes.dma0.control = a = snes.dma.CONTROL_MODE_AB | snes.dma.CONTROL_MDMA_NO_INCREMENT;
     snes.dma0.mdma_dest = a = <:&snes.ppu.vram_write_data_l;
     snes.dma0.src_address_hl = xx = &blank_byte as u16;
-    snes.dma0.src_address_bank = a = 0x80;  // ::TODO replace with #:&blank_byte when implemented::
+    snes.dma0.src_address_bank = a = ((far &blank_byte) as u24 >> 16) as u8;
     snes.dma0.mdma_size_hl = yy;
 
     snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
-
-    data_bank = pop();
 }
 
 
 // Clear a given block of CGRAM
 // NOTE: Modifies DMA0 (set to single register, no increment, src = blank_byte)
 // NOTE: Disables HDMA, set force blank
+// REQUIRES: DB access registers
 #[mem8, idx16]
 func clear_cgram(color : u16 in xx, nColors : u16 in yy) {
-    push(data_bank);
-
-    push(a = 0x80);
-    data_bank = pop();
 
     // Disable HDMA
     snes.dma.hdma_enable = 0;
@@ -58,7 +49,7 @@ func clear_cgram(color : u16 in xx, nColors : u16 in yy) {
     snes.dma0.control = a = snes.dma.CONTROL_MODE_AB | snes.dma.CONTROL_MDMA_NO_INCREMENT;
     snes.dma0.mdma_dest = a = <:&snes.ppu.vram_write_data_l;
     snes.dma0.src_address_hl = xx = &blank_byte as u16;
-    snes.dma0.src_address_bank = a = 0x80;  // ::TODO replace with #:&blank_byte when implemented::
+    snes.dma0.src_address_bank = a = ((far &blank_byte) as u24 >> 16) as u8;
 
     mem16();
     #[mem16] {
@@ -68,8 +59,78 @@ func clear_cgram(color : u16 in xx, nColors : u16 in yy) {
     mem8();
 
     snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
+}
 
-    data_bank = pop();
+
+
+// Copy a block of data to VRAM
+// NOTE: Modifies DMA0
+// REQUIRES: DB access registers, VRAM address set, f/v-blank
+#[mem8, idx16]
+func transfer_to_vram(data_bank : u8 in a, data_addr : u16 in xx, size : u16 in yy) {
+    snes.dma0.src_address_bank = a;
+    snes.dma0.src_address_hl = xx;
+    snes.dma0.mdma_size_hl = yy;
+
+    snes.dma0.control = a = snes.dma.CONTROL_MODE_AB;
+    snes.dma0.mdma_dest = a = <:&snes.ppu.vram_write_data_l;
+
+    snes.ppu.vram_control = a = snes.ppu.VRAM_CONTROL_INCREMENT_1 | snes.ppu.VRAM_CONTROL_REMAP_MODE_0 + snes.ppu.VRAM_CONTROL_SIZE_16;
+
+    snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
+}
+
+
+// Copy a block of data to the low (odd) bytes of VRAM
+// NOTE: Modifies DMA0
+// REQUIRES: DB access registers, VRAM address set, f/v-blank
+#[mem8, idx16]
+func transfer_vram_l(data_bank : u8 in a, data_addr : u16 in xx, size : u16 in yy) {
+    snes.dma0.src_address_bank = a;
+    snes.dma0.src_address_hl = xx;
+    snes.dma0.mdma_size_hl = yy;
+
+    snes.dma0.control = a = snes.dma.CONTROL_MODE_A;
+    snes.dma0.mdma_dest = a = <:&snes.ppu.vram_write_data_l;
+
+    snes.ppu.vram_control = a = snes.ppu.VRAM_CONTROL_INCREMENT_1 | snes.ppu.VRAM_CONTROL_REMAP_MODE_0 + snes.ppu.VRAM_CONTROL_SIZE_8;
+
+    snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
+}
+
+
+// Copy a block of data to the high (even) bytes of VRAM
+// NOTE: Modifies DMA0
+// REQUIRES: DB access registers, VRAM address set, f/v-blank
+#[mem8, idx16]
+func transfer_vram_h(data_bank : u8 in a, data_addr : u16 in xx, size : u16 in yy) {
+    snes.dma0.src_address_bank = a;
+    snes.dma0.src_address_hl = xx;
+    snes.dma0.mdma_size_hl = yy;
+
+    snes.dma0.control = a = snes.dma.CONTROL_MODE_A;
+    snes.dma0.mdma_dest = a = <:&snes.ppu.vram_write_data_h;
+
+    snes.ppu.vram_control = a = snes.ppu.VRAM_CONTROL_INCREMENT_1 | snes.ppu.VRAM_CONTROL_REMAP_MODE_0 + snes.ppu.VRAM_CONTROL_SIZE_16;
+
+    snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
+}
+
+
+
+// Copy a block of data to CGRAM
+// NOTE: Modifies DMA0
+// REQUIRES: DB access registers, CGRAM address set, f/v-blank
+#[mem8, idx16]
+func transfer_to_cgram(data_bank : u8 in a, data_addr : u16 in xx, size : u16 in yy) {
+    snes.dma0.src_address_bank = a;
+    snes.dma0.src_address_hl = xx;
+    snes.dma0.mdma_size_hl = yy;
+
+    snes.dma0.control = a = snes.dma.CONTROL_MODE_A;
+    snes.dma0.mdma_dest = a = <:&snes.ppu.cgram_write_data;
+
+    snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
 }
 
 }

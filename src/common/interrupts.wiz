@@ -27,6 +27,14 @@ in code {
     nmireturn;
 }
 
+#[mem8]
+inline func wait_for_vblank() {
+    a = <:frame_counter.loword;
+    do {
+        wait_until_interrupt();
+    } while (a == <:frame_counter.loword);
+}
+
 #[irq] func irq_handler() {
     irqreturn;
 }

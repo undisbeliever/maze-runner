@@ -1,18 +1,57 @@
 import "memmap";
 import "common/reset";
+import "common/dma";
 import "common/interrupts";
 import "../wiz/examples/snes/common/snes/snes";
 
 
 in code {
 
-#[fallthrough, mem8, idx16] far func main() {
+#[fallthrough, mem8, idx16]
+far func main() {
 
-    // Show white BG
+    wait_for_vblank();
+
+    // Force blank
+    snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK;
+
+    snes.ppu.bg_mode = a = 7;
+
+    snes.ppu.mode7_control = a = snes.ppu.MODE7_CONTROL_FIELD_SIZE_HUGE | snes.ppu.MODE7_CONTROL_EMPTY_TRANSPARENT_FILL;
+
+    snes.ppu.screen_enable_mask = a = snes.ppu.SCREEN_ENABLE_BG1;
+    snes.ppu.sub_screen_enable_mask = a = snes.ppu.SCREEN_ENABLE_BG1;
+
+    a = 1;
+    snes.ppu.mode7_a = 0;
+    snes.ppu.mode7_a = a;
+    snes.ppu.mode7_b = 0;
+    snes.ppu.mode7_b = 0;
+    snes.ppu.mode7_c = 0;
+    snes.ppu.mode7_c = 0;
+    snes.ppu.mode7_d = 0;
+    snes.ppu.mode7_d = a;
+
+    snes.ppu.mode7_center_x = 0;
+    snes.ppu.mode7_center_x = 0;
+    snes.ppu.mode7_center_y = 0;
+    snes.ppu.mode7_center_y = 0;
+
+    snes.ppu.bg1_scroll_x = a = (512 + 4 - 256 / 2) & 0xff;
+    snes.ppu.bg1_scroll_x = a = (512 + 4 - 256 / 2) >> 8;
+    snes.ppu.bg1_scroll_y = a = (512 + 4 - 224 / 2) & 0xff;
+    snes.ppu.bg1_scroll_y = a = (512 + 4 - 224 / 2) >> 8;
+
 
     snes.ppu.cgram_address = 0;
-    snes.ppu.cgram_write_data = a = 0xff;
-    snes.ppu.cgram_write_data = a = 0x7f;
+    transfer_to_cgram(((far &mode7_palette) as u24 >> 16) as u8, &mode7_palette as u16, sizeof(typeof(mode7_palette)));
+
+    snes.ppu.vram_address_hl = xx = 0;
+    transfer_vram_h(((far &mode7_tiles) as u24 >> 16) as u8, &mode7_tiles as u16, sizeof(typeof(mode7_tiles)));
+
+    snes.ppu.vram_address_hl = xx = 0;
+    transfer_vram_l(((far &map01) as u24 >> 16) as u8, &map01 as u16, sizeof(typeof(map01)));
+
 
     snes.ppu.brightness = a = 0xf;
 
@@ -21,5 +60,14 @@ in code {
     }
 }
 
+}
+
+in rodata0 {
+    const mode7_tiles   = embed "../gen/mode-7-tiles.m7tiles";
+    const mode7_palette = embed "../gen/mode-7-tiles.pal";
+}
+
+in rodata1 {
+    const map01 = embed "../gen/map01.m7map";
 }
 
