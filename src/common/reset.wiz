@@ -9,76 +9,80 @@ in code {
 // Reset registers to a good initial state
 //
 // NOTE: Does not set the address or mode 7 registers
-#[mem8, idx8]
 func reset_registers() {
+    push(p);
     push(data_bank);
 
-    push(a = 0x80);
+    mem8_idx8();
+    #[mem8, idx8] {
+        push(a = 0x80);
+        data_bank = pop();
+
+        // Disable HDMA
+        snes.dma.hdma_enable = 0;
+
+        // Enable NMI and autoJoy
+        snes.ppu.irq_enable = a = snes.ppu.IRQ_ENABLE_NMI | snes.ppu.IRQ_ENABLE_AUTOJOY;
+
+        // Force screen blank
+        snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK | snes.ppu.BRIGHTNESS_MASK;
+
+        // 8x8 and 16x16 objects
+        snes.ppu.obj_control = 0;
+
+
+        // Registers $2105 - 210c
+        // BG settings and VRAM base addresses
+        x = 0x210c - 0x2105;
+        do {
+            (0x2105 as *u8)[x] = 0;
+            x--;
+        } while !negative;
+
+
+        // Registers $210d - $2114
+        // BG scroll locations
+        a = 0xff;
+        x = (4 - 1) * 2;
+        do {
+            // Set X scroll to 0;
+            (&snes.ppu.bg1_scroll_x as *u8)[x] = 0;
+            (&snes.ppu.bg1_scroll_x as *u8)[x] = 0;
+            // Set Y scroll to -1;
+            (&snes.ppu.bg1_scroll_y as *u8)[x] = a;
+            (&snes.ppu.bg1_scroll_y as *u8)[x] = a;
+            x--;
+            x--;
+        } while !negative;
+
+        // Increment VRAM by 1 word on reading/writing the high byte of VRAM
+        snes.ppu.vram_control = a = snes.ppu.VRAM_CONTROL_INCREMENT_1 | snes.ppu.VRAM_CONTROL_REMAP_MODE_0 + snes.ppu.VRAM_CONTROL_SIZE_16;
+
+
+        // Skipping Mode 7 registers
+
+
+        // Registers $2123 - $2133
+        // Window Settings, BG/OBJ designation, Color Math, Screen Mode
+        // All disabled
+        x = 0x2133 - 0x2123;
+        do {
+            (0x2123 as *u8)[x] = 0;
+            x--;
+        } while !negative;
+
+
+        // Reset the DMA registers
+        // ::ANNOY: cannot do this with 16 bit A::
+        x = 0x80 - 1;
+        do {
+            (0x4300 as *u8)[x] = 0;
+            x--;
+        } while !negative;
+    }
+
     data_bank = pop();
-
-    // Disable HDMA
-    snes.dma.hdma_enable = 0;
-
-    // Enable NMI and autoJoy
-    snes.ppu.irq_enable = a = snes.ppu.IRQ_ENABLE_NMI | snes.ppu.IRQ_ENABLE_AUTOJOY;
-
-    // Force screen blank
-    snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK | snes.ppu.BRIGHTNESS_MASK;
-
-    // 8x8 and 16x16 objects
-    snes.ppu.obj_control = 0;
-
-
-    // Registers $2105 - 210c
-    // BG settings and VRAM base addresses
-    x = 0x210c - 0x2105;
-    do {
-        (0x2105 as *u8)[x] = 0;
-        x--;
-    } while !negative;
-
-
-    // Registers $210d - $2114
-    // BG scroll locations
-    a = 0xff;
-    x = (4 - 1) * 2;
-    do {
-        // Set X scroll to 0;
-        (&snes.ppu.bg1_scroll_x as *u8)[x] = 0;
-        (&snes.ppu.bg1_scroll_x as *u8)[x] = 0;
-        // Set Y scroll to -1;
-        (&snes.ppu.bg1_scroll_y as *u8)[x] = a;
-        (&snes.ppu.bg1_scroll_y as *u8)[x] = a;
-        x--;
-        x--;
-    } while !negative;
-
-    // Increment VRAM by 1 word on reading/writing the high byte of VRAM
-    snes.ppu.vram_control = a = snes.ppu.VRAM_CONTROL_INCREMENT_1 | snes.ppu.VRAM_CONTROL_REMAP_MODE_0 + snes.ppu.VRAM_CONTROL_SIZE_16;
-
-
-    // Skipping Mode 7 registers
-
-
-    // Registers $2123 - $2133
-    // Window Settings, BG/OBJ designation, Color Math, Screen Mode
-    // All disabled
-    x = 0x2133 - 0x2123;
-    do {
-        (0x2123 as *u8)[x] = 0;
-        x--;
-    } while !negative;
-
-
-    // Reset the DMA registers
-    // ::ANNOY: cannot do this with 16 bit A::
-    x = 0x80 - 1;
-    do {
-        (0x4300 as *u8)[x] = 0;
-        x--;
-    } while !negative;
-
-    data_bank = pop();
+    p = pop();
 }
 
 
