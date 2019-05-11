@@ -1,5 +1,17 @@
 import "memmap";
 
+in zeropage {
+    var dptmp_w0 : u16;
+    var dptmp_w1 : u16;
+    var dptmp_w2 : u16;
+    var dptmp_w3 : u16;
+
+    var dptmp_b0 : u8;
+    var dptmp_b1 : u8;
+    var dptmp_b2 : u8;
+    var dptmp_b3 : u8;
+}
+
 in shadow {
     struct uint32 {
         loword : u16,

@@ -1,0 +1,216 @@
+import "memmap";
+import "variables";
+import "common/dma";
+import "common/reset";
+import "common/interrupts";
+import "../wiz/examples/snes/common/snes/snes";
+
+namespace game {
+
+let MAP_TILE_WIDTH      = 128;
+let MAP_TILE_HEIGHT     = 128;
+let MAP_TILE_SIZE       = MAP_TILE_WIDTH * MAP_TILE_HEIGHT;
+
+let TILE_TYPE_ROWS      = 4;
+
+let STARTING_TILE       = 0x05;
+
+let TARGET_TILE         = 0x01;
+let SMALL_TARGET_TILE   = 0x02;
+
+
+in rodata0 {
+    const mode7_tiles   = embed "../gen/mode-7-tiles.m7tiles";
+    const mode7_palette = embed "../gen/mode-7-tiles.pal";
+}
+
+namespace levels {
+    in rodata1 {
+        const map01 = embed "../gen/map01.m7map";
+    }
+}
+
+enum Direction : u8 {
+    RIGHT,
+    LEFT,
+    DOWN,
+    UP,
+};
+let DIRECTION_MASK = 3;
+
+let INITIAL_DIRECTION = Direction.RIGHT;
+
+in shadow {
+    // Number of targets left in the game
+    var n_targets_left : u16;
+
+    struct u16point {
+        x : u16,
+        y : u16,
+    };
+    // Position of the player
+    var position : u16point;
+
+    // Current direction of movement
+    var direction : Direction;
+
+    // Next direction to move (input buffer)
+    var next_direction : Direction;
+}
+
+in wram7e {
+    var map : [u8 ; MAP_TILE_SIZE];
+}
+
+
+in code {
+
+#[mem8, idx16]
+inline func get_map_tile(index : u16 in xx) : u8 in a {
+    // ::ANNOY This is the only way to force wiz to use long addressing mode::
+    return a = ((far &map as u24) as far *u8)[xx];
+}
+
+#[mem8, idx16]
+inline func set_map_tile(index : u16 in xx, value : u8 in a) {
+    // ::ANNOY This is the only way to force wiz to use long addressing mode::
+    ((far &map as u24) as far *u8)[xx] = a;
+}
+
+
+#[mem8, idx16]
+inline func load_map(map_bank : u8 in a, map_addr : u16 in yy) {
+    push(data_bank);
+
+    push(a);
+    data_bank = pop();
+
+    xx = 0;
+    do {
+        a = *((0 + yy) as *u8);
+
+        set_map_tile(xx, a);
+
+        yy++;
+        xx++;
+    } while (xx < MAP_TILE_SIZE);
+
+    data_bank = pop();
+}
+
+#[mem8, idx16]
+inline func init_ppu() {
+    wait_for_vblank();
+
+    reset_registers();
+
+    // Force blank
+    snes.ppu.brightness = a = snes.ppu.BRIGHTNESS_FORCE_BLANK;
+
+    snes.ppu.bg_mode = a = 7;
+
+    snes.ppu.mode7_control = a = snes.ppu.MODE7_CONTROL_FIELD_SIZE_HUGE | snes.ppu.MODE7_CONTROL_EMPTY_TRANSPARENT_FILL;
+
+    snes.ppu.screen_enable_mask = a = snes.ppu.SCREEN_ENABLE_BG1;
+    snes.ppu.sub_screen_enable_mask = a = snes.ppu.SCREEN_ENABLE_BG1;
+
+    a = 1;
+    snes.ppu.mode7_a = 0;
+    snes.ppu.mode7_a = a;
+    snes.ppu.mode7_b = 0;
+    snes.ppu.mode7_b = 0;
+    snes.ppu.mode7_c = 0;
+    snes.ppu.mode7_c = 0;
+    snes.ppu.mode7_d = 0;
+    snes.ppu.mode7_d = a;
+
+    snes.ppu.mode7_center_x = 0;
+    snes.ppu.mode7_center_x = 0;
+    snes.ppu.mode7_center_y = 0;
+    snes.ppu.mode7_center_y = 0;
+
+
+    snes.ppu.cgram_address = 0;
+    transfer_to_cgram(((far &mode7_palette) as u24 >> 16) as u8, &mode7_palette as u16, sizeof(typeof(mode7_palette)));
+
+    snes.ppu.vram_address_hl = xx = 0;
+    transfer_vram_h(((far &mode7_tiles) as u24 >> 16) as u8, &mode7_tiles as u16, sizeof(typeof(mode7_tiles)));
+
+    snes.ppu.vram_address_hl = xx = 0;
+    transfer_vram_l(((far &map) as u24 >> 16) as u8, &map as u16, sizeof(typeof(map)));
+}
+
+#[mem8, idx16]
+inline func init() {
+    load_map(((far &levels.map01) as u24 >> 16) as u8, &levels.map01 as u16);
+
+
+    // Extract starting position and n targets
+    //  NOTE: also normalizes SMALL_TARGET_TILE to TARGET_TILE and STARTING_TILE to 0.
+
+    let starting_tile_index = dptmp_w0;
+
+    starting_tile_index = xx = MAP_TILE_SIZE / 2;
+
+    // yy holds n_targets
+    yy = 0;
+    for xx in 0 .. MAP_TILE_SIZE {
+        a = get_map_tile(xx);
+
+        if a < TILE_TYPE_ROWS * 0x10 {
+            a &= 0x0f;
+            if a == STARTING_TILE {
+                starting_tile_index = xx;
+                set_map_tile(xx, 0);
+            }
+            else if (a == SMALL_TARGET_TILE) {
+                a = get_map_tile(xx);
+                a--;
+                set_map_tile(xx, a);
+
+                yy++;
+            }
+            else if (a == TARGET_TILE) {
+                yy++;
+            }
+        }
+    }
+
+    n_targets_left = yy;
+
+    a = INITIAL_DIRECTION as u8;
+    direction = a as Direction;
+    next_direction = a as Direction;
+
+    mem16();
+    #[mem16] {
+        let TILE_AXIS_MASK = (MAP_TILE_WIDTH - 1);
+
+        position.x = aa = ((starting_tile_index & TILE_AXIS_MASK) << 3) + 4;
+        position.y = aa = ((starting_tile_index >>> (7 - 3)) & (TILE_AXIS_MASK << 3)) + 4;
+    }
+    mem8();
+
+
+    init_ppu();
+}
+
+
+#[mem8, idx16]
+func wait_frame() {
+    wait_for_vblank();
+
+    // Update scroll position
+
+    snes.ppu.bg1_scroll_x = a = <:position.x - (256 / 2);
+    snes.ppu.bg1_scroll_x = a = >:position.x -# 0;
+    snes.ppu.bg1_scroll_y = a = <:position.y - (224 / 2);
+    snes.ppu.bg1_scroll_y = a = >:position.y -# 0;
+
+
+    snes.ppu.brightness = a = 0xf;
+}
+
+}
+}
+
