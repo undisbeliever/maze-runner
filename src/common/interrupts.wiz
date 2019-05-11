@@ -8,6 +8,7 @@ in code {
 #[nmi] func nmi_handler() {
     mem16();
     #[mem16] {
+        push(data_bank);
         push(aa);
 
         push(program_bank);
@@ -22,6 +23,7 @@ in code {
     // ::BUG cannot do `aa = pop()`::
     #[mem8] {
         a = pop();
+        data_bank = pop();
     }
 
     nmireturn;
