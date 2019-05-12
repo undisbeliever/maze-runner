@@ -2,6 +2,7 @@ import "memmap";
 import "variables";
 import "common/dma";
 import "common/reset";
+import "common/joypad";
 import "common/interrupts";
 import "../wiz/examples/snes/common/snes/snes";
 
@@ -11,18 +12,15 @@ let MAP_TILE_WIDTH      = 128;
 let MAP_TILE_HEIGHT     = 128;
 let MAP_TILE_SIZE       = MAP_TILE_WIDTH * MAP_TILE_HEIGHT;
 
-let TILE_TYPE_ROWS      = 4;
+let FIRST_WALL_TILE     = 0x40;
 
 let STARTING_TILE       = 0x05;
 
 let TARGET_TILE         = 0x01;
 let SMALL_TARGET_TILE   = 0x02;
 
+let FIRST_MOVEMENT_TILE = 6;
 
-in rodata0 {
-    const mode7_tiles   = embed "../gen/mode-7-tiles.m7tiles";
-    const mode7_palette = embed "../gen/mode-7-tiles.pal";
-}
 
 namespace levels {
     in rodata1 {
@@ -30,19 +28,41 @@ namespace levels {
     }
 }
 
+in rodata0 {
+    const mode7_tiles   = embed "../gen/mode-7-tiles.m7tiles";
+    const mode7_palette = embed "../gen/mode-7-tiles.pal";
+}
+
 enum Direction : u8 {
     RIGHT,
     LEFT,
     DOWN,
     UP,
+    NONE,
+    DEAD,
 };
-let DIRECTION_MASK = 3;
+let DIRECTION_MOVEMENT_MASK = 3;
+let N_MOVEMENT_DIRECTIONS = 4;
 
-let INITIAL_DIRECTION = Direction.RIGHT;
+
+in rodata0 {
+    const dual_direction_tiles : [u8] = [
+// current direction:   right   left    down    up
+                        0xA,    0x5,    0xC,    0xD,    //   right
+                        0x5,    0xA,    0xE,    0xF,    //   left
+                        0xF,    0xD,    0xB,    0x5,    //   down
+                        0xE,    0xC,    0x5,    0xB,    //   up
+                        0x7,    0x6,    0x9,    0x8,    //   none
+        ];                                              // previous direction
+}
+let INVALID_MOVEMENT_TILE = 0x5;
+
 
 in shadow {
     // Number of targets left in the game
     var n_targets_left : u16;
+
+    var targets_eaten : u16;
 
     struct u16point {
         x : u16,
@@ -51,11 +71,26 @@ in shadow {
     // Position of the player
     var position : u16point;
 
+    var previous_tile_index : u16;
+
     // Current direction of movement
     var direction : Direction;
 
+    // Previous direction
+    // (used to determine which corner pieces to use)
+    var previous_direction : Direction;
+
     // Next direction to move (input buffer)
     var next_direction : Direction;
+
+
+    // The next tile to update the tiles during VBlank
+    struct VBlankTileQueue{
+        tile_value : u8,
+        tile_address : u16,
+    };
+    var vblank_tile_queue : [VBlankTileQueue ; 6];
+    var vblank_tile_queue_pos : u16;
 }
 
 in wram7e {
@@ -72,9 +107,27 @@ inline func get_map_tile(index : u16 in xx) : u8 in a {
 }
 
 #[mem8, idx16]
-inline func set_map_tile(index : u16 in xx, value : u8 in a) {
+inline func set_map_tile_imm(index : u16 in xx, value : u8 in a) {
     // ::ANNOY This is the only way to force wiz to use long addressing mode::
     ((far &map as u24) as far *u8)[xx] = a;
+}
+
+#[mem8, idx16]
+func position_to_tile_index() : u16 in xx {
+    let tmp = dptmp_w0;
+    let AXIS_MASK = 127;
+
+    mem16();
+    #[mem16, idx16] {
+        tmp = aa = (position.x >>> 3) & AXIS_MASK;
+        aa = (position.y & (AXIS_MASK <<< 3)) <<< (7 - 3);
+        aa += tmp;
+
+        xx = aa;
+    }
+    mem8();
+
+    return xx;
 }
 
 
@@ -89,7 +142,7 @@ inline func load_map(map_bank : u8 in a, map_addr : u16 in yy) {
     do {
         a = *((0 + yy) as *u8);
 
-        set_map_tile(xx, a);
+        set_map_tile_imm(xx, a);
 
         yy++;
         xx++;
@@ -140,33 +193,48 @@ inline func init_ppu() {
     transfer_vram_l(((far &map) as u24 >> 16) as u8, &map as u16, sizeof(typeof(map)));
 }
 
+
 #[mem8, idx16]
 inline func init() {
     load_map(((far &levels.map01) as u24 >> 16) as u8, &levels.map01 as u16);
 
 
+    // Reset values
+
+    a = Direction.NONE as u8;
+    direction = a as Direction;
+    previous_direction = a as Direction;
+    next_direction = a as Direction;
+
+    xx = 0;
+    targets_eaten = xx;
+    vblank_tile_queue_pos = xx;
+
+    xx = 0xffff;
+    previous_tile_index = xx;
+
+
     // Extract starting position and n targets
     //  NOTE: also normalizes SMALL_TARGET_TILE to TARGET_TILE and STARTING_TILE to 0.
 
-    let starting_tile_index = dptmp_w0;
-
-    starting_tile_index = xx = MAP_TILE_SIZE / 2;
+    // Reuse previous_tile_index to store previous_tile_index
+    previous_tile_index = xx = MAP_TILE_SIZE / 2 - (MAP_TILE_WIDTH / 2);
 
     // yy holds n_targets
     yy = 0;
     for xx in 0 .. MAP_TILE_SIZE {
         a = get_map_tile(xx);
 
-        if a < TILE_TYPE_ROWS * 0x10 {
+        if a < FIRST_WALL_TILE {
             a &= 0x0f;
             if a == STARTING_TILE {
-                starting_tile_index = xx;
-                set_map_tile(xx, 0);
+                previous_tile_index = xx;
+                set_map_tile_imm(xx, 0);
             }
             else if (a == SMALL_TARGET_TILE) {
                 a = get_map_tile(xx);
                 a--;
-                set_map_tile(xx, a);
+                set_map_tile_imm(xx, a);
 
                 yy++;
             }
@@ -178,16 +246,12 @@ inline func init() {
 
     n_targets_left = yy;
 
-    a = INITIAL_DIRECTION as u8;
-    direction = a as Direction;
-    next_direction = a as Direction;
-
     mem16();
     #[mem16] {
         let TILE_AXIS_MASK = (MAP_TILE_WIDTH - 1);
 
-        position.x = aa = ((starting_tile_index & TILE_AXIS_MASK) << 3) + 4;
-        position.y = aa = ((starting_tile_index >>> (7 - 3)) & (TILE_AXIS_MASK << 3)) + 4;
+        position.x = aa = ((previous_tile_index & TILE_AXIS_MASK) << 3) + 4;
+        position.y = aa = ((previous_tile_index >>> (7 - 3)) & (TILE_AXIS_MASK << 3)) + 4;
     }
     mem8();
 
@@ -208,7 +272,257 @@ func wait_frame() {
     snes.ppu.bg1_scroll_y = a = >:position.y -# 0;
 
 
+    // Update tiles
+    yy = vblank_tile_queue_pos;
+    if !zero {
+        snes.ppu.vram_control = a = snes.ppu.VRAM_CONTROL_INCREMENT_1 | snes.ppu.VRAM_CONTROL_REMAP_MODE_0 + snes.ppu.VRAM_CONTROL_SIZE_8;
+
+        do {
+            snes.ppu.vram_address_hl = xx = *((&vblank_tile_queue[0].tile_address as u16 - 3 + yy) as *u16);
+            snes.ppu.vram_write_data_l = a = *((&vblank_tile_queue[0].tile_value as u16 - 3 + yy) as *u8);
+
+            yy--;
+            yy--;
+            yy--;
+        } while !zero;
+    }
+    vblank_tile_queue_pos = yy = 0;
+
+
     snes.ppu.brightness = a = 0xf;
+
+
+    update_joypad();
+}
+
+
+#[mem8, idx16]
+func set_map_tile(index : u16 in xx, value : u8 in a) {
+
+    // ::ANNOY This is the only way to force wiz to use long addressing mode::
+    ((far &map as u24) as far *u8)[xx] = a;
+
+
+    yy = vblank_tile_queue_pos;
+    if yy >= sizeof(typeof(vblank_tile_queue)) {
+        break_handler();
+    }
+
+    *((&vblank_tile_queue[0].tile_value as u16 + yy) as *u8) = a;
+
+    mem16();
+    #[mem16, idx16] {
+        aa = xx;
+        *((&vblank_tile_queue[0].tile_address as u16 + yy) as *u16) = aa;;
+    }
+    mem8();
+
+    yy++;
+    yy++;
+    yy++;
+
+    vblank_tile_queue_pos = yy;
+}
+
+
+#[mem8, idx16]
+inline func process_dpad() {
+
+    a = >:joypad1.pressed;
+
+    if a & joypadh.RIGHT != 0 {
+        a = Direction.RIGHT as u8;
+    }
+    else if a & joypadh.LEFT != 0 {
+        a = Direction.LEFT as u8;
+    }
+    else if a & joypadh.UP != 0 {
+        a = Direction.UP as u8;
+    }
+    else if a & joypadh.DOWN != 0 {
+        a = Direction.DOWN as u8;
+    }
+    else {
+        return;
+    }
+    next_direction = a as Direction;
+}
+
+
+#[mem8, idx16]
+inline func process_movement() {
+    let _tmp_b = dptmp_b3;
+
+    // Initially tried to do a `jsr (addr,x)` here, but I couldn't
+    // figure out how to do it.
+
+    a = direction as u8;
+    if zero {
+        // 0, right
+        xx = position.x;
+        xx++;
+        position.x = xx;
+    }
+    else if a == Direction.LEFT as u8 {
+        xx = position.x;
+        xx--;
+        position.x = xx;
+        xx++;               // required for system to detect new tiles correctly
+    }
+    else if a == Direction.DOWN as u8 {
+        xx = position.y;
+        xx++;
+        position.y = xx;
+    }
+    else if a == Direction.UP as u8 {
+        xx = position.y;
+        xx--;
+        position.y = xx;
+        xx++;               // required for system to detect new tiles correctly
+    }
+    else if a == Direction.NONE as u8 {
+        a = next_direction as u8;
+        direction = a as Direction;
+        xx = 4;
+    }
+    else {
+        // DEAD
+        xx = 0xffff;
+    }
+
+
+    // Preform tile test and update map (if necessary)
+
+    // x = axis of movement;
+    a = x & 7;
+    if zero {
+        // Set previous tile
+        {
+            xx = previous_tile_index;
+            a = get_map_tile(xx);
+            _tmp_b = a = a & 0xf0;
+
+            a = lookup_dual_direction_tile(direction as u8);
+            a |= _tmp_b;
+            xx = previous_tile_index;
+            set_map_tile(xx, a);
+        }
+
+        // Test if we are in a wall or movement tile
+        xx = position_to_tile_index();
+        a = get_map_tile(xx);
+        if a >= FIRST_WALL_TILE {
+            a = Direction.DEAD as u8;
+            direction = a as Direction;
+        }
+        else {
+            a &= 0xf;
+            if a >= FIRST_MOVEMENT_TILE {
+                a = Direction.DEAD as u8;
+                direction = a as Direction;
+            }
+        }
+    }
+    else if a == 4 {
+        a = next_direction as u8;
+        if a < N_MOVEMENT_DIRECTIONS {
+            // In the middle of a tile
+
+            xx = position_to_tile_index();
+
+            if xx != previous_tile_index {
+                previous_tile_index = xx;
+
+                // Update direction (if next_direction is valid)
+                {
+                    a = direction as u8;
+                    previous_direction = a as Direction;
+
+                    a = lookup_dual_direction_tile(next_direction as u8);
+                    if a != INVALID_MOVEMENT_TILE {
+                        a = next_direction as u8;
+                        direction = a as Direction;
+                    }
+                }
+
+                // Test which tile we are on
+                xx = previous_tile_index;
+                a = get_map_tile(xx);
+                if a < FIRST_WALL_TILE {
+                    a &= 0x0f;
+                    if a == TARGET_TILE {
+                        increment_score();
+
+                        // ::ANNOY cannot jump to set movement tile::
+                        // replace target tile with movement tile
+                        a = 0;
+                    }
+
+                    // Set movement tile (if unused)
+                    if a == 0 {
+                        xx = previous_tile_index;
+                        a = get_map_tile(xx);
+                        a &= 0xf0;
+                        a += previous_direction as u8;
+                        a += FIRST_MOVEMENT_TILE;
+                        set_map_tile(xx, a);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+#[mem8, idx16]
+inline func increment_score() {
+    mem16();
+    #[mem16] {
+        targets_eaten++;
+
+        n_targets_left--;
+        if negative {
+            break_handler();
+        }
+    }
+    mem8();
+}
+
+
+// Preforms a lookup between a given direction and the previous_direction.
+//
+// Returns the tile to use in the map.
+//
+// Returns INVALID_MOVEMENT_TILE if you cannot transition between
+// previous_direction and the given direction.
+#[mem8, idx16]
+func lookup_dual_direction_tile(direction : u8 in a) : u8 in a {
+    let _tmp = dptmp_b0;
+
+    if a >= N_MOVEMENT_DIRECTIONS {
+        return INVALID_MOVEMENT_TILE;
+    }
+
+    _tmp = a;
+
+    a = previous_direction as u8;
+    if a >= Direction.DEAD as u8 {
+        a = Direction.NONE as u8;
+    }
+    a <<<= 2;
+    // carry clear
+    a +#= _tmp;
+
+    idx8();
+    #[mem8, idx8] {
+        x = a;
+
+        // ::ANNOY this is the only way I know how to force long addressing mode::
+        a = ((far &dual_direction_tiles as u24) as far *u8)[x];
+    }
+    idx16();
+
+    return a;
 }
 
 }

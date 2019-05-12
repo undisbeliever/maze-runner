@@ -1,0 +1,97 @@
+import "../memmap";
+import "../../wiz/examples/snes/common/snes/snes";
+
+namespace joypad {
+    let B       = 0b1000000000000000;
+    let Y       = 0b0100000000000000;
+    let SELECT  = 0b0010000000000000;
+    let START   = 0b0001000000000000;
+    let UP      = 0b0000100000000000;
+    let DOWN    = 0b0000010000000000;
+    let LEFT    = 0b0000001000000000;
+    let RIGHT   = 0b0000000100000000;
+    let A       = 0b0000000010000000;
+    let X       = 0b0000000001000000;
+    let L       = 0b0000000000100000;
+    let R       = 0b0000000000010000;
+
+    let BUTTONS  = 0b1100000011000000;
+    let DPAD     = 0b0000111100000000;
+    let SHOULDER = 0b0000000000110000;
+
+    namespace type {
+        let MASK = 0b0000000000001111;
+
+        let CONTROLLER      = 0b0000;
+        let MOUSE           = 0b0001;
+        let KONAMIJUSTIFER  = 0b1110;
+    }
+}
+
+namespace joypadh {
+    let B       = 0b10000000;
+    let Y       = 0b01000000;
+    let SELECT  = 0b00100000;
+    let START   = 0b00010000;
+    let UP      = 0b00001000;
+    let DOWN    = 0b00000100;
+    let LEFT    = 0b00000010;
+    let RIGHT   = 0b00000001;
+
+    let DPAD    = 0b00001111;
+}
+namespace joypadl {
+    let A = 0b10000000;
+    let X = 0b01000000;
+    let L = 0b00100000;
+    let R = 0b00010000;
+
+    namespace type {
+        let MASK = 0b00001111;
+
+        let CONTROLLER      = 0b0000;
+        let MOUSE           = 0b0001;
+        let KONAMIJUSTIFER  = 0b1110;
+    }
+}
+
+
+namespace joypad1 {
+    in shadow {
+        var current : u16;
+        var pressed : u16;
+    }
+}
+
+in code {
+
+// REQUIRES: DB access registers
+#[mem8, idx16]
+func update_joypad() {
+    // Read the joypad, ensure we do not read it during autoJoy
+    do {
+        xx = snes.joy.pad1_hl;
+        a = snes.ppu.HVBJOY_STATUS_AUTOJOY_MASK;
+        do {
+        } while a & snes.ppu.hvbjoy_status != 0;
+    } while xx != snes.joy.pad1_hl;
+
+
+    mem16();
+    #[mem16] {
+        aa = xx;
+        if aa & joypad.type.MASK != 0 {
+            aa = 0;
+        }
+
+        yy = aa;
+        aa = joypad1.current ^ 0xffff;
+        joypad1.current = yy;
+
+        joypad1.pressed = aa = aa & joypad1.current;
+    }
+    mem8();
+}
+
+}
+

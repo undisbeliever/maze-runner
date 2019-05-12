@@ -3,6 +3,7 @@ import "game";
 import "common/reset";
 import "common/dma";
 import "common/interrupts";
+import "common/joypad";
 import "../wiz/examples/snes/common/snes/snes";
 
 
@@ -12,8 +13,11 @@ in code {
 far func main() {
     game.init();
 
-    while true {
+    ^while true {
         game.wait_frame();
+
+        game.process_dpad();
+        game.process_movement();
     }
 }
 
