@@ -145,8 +145,7 @@ func reset_oam() {
     #[mem16, idx16] {
         ss = xx = STACK_TOP;
 
-        aa = 0;
-        direct_page = a;
+        direct_page = aa = 0;
     }
 
     mem8();

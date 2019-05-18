@@ -3,7 +3,7 @@ config {
     expansion_type = "none",
     fastrom = false,
     region = "ntsc",
-    title = "MAZE RUNNER          ",
+    title = "MAZE RUNNER",
 }
 
 bank code     @ 0x808000 : [constdata;  0x8000];
