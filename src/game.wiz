@@ -525,6 +525,25 @@ func lookup_dual_direction_tile(direction : u8 in a) : u8 in a {
     return a;
 }
 
+#[mem8, idx16]
+func gameloop() {
+    init();
+
+    ^do {
+        wait_frame();
+
+        process_dpad();
+        process_movement();
+
+        a = direction as u8;
+        break if a == Direction.DEAD as u8;
+
+        xx = n_targets_left;
+    } while !zero;
+
+    wait_frame();
+}
+
 }
 }
 

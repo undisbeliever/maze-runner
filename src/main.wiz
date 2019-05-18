@@ -11,13 +11,10 @@ in code {
 
 #[fallthrough, mem8, idx16]
 far func main() {
-    game.init();
+    game.gameloop();
 
-    ^while true {
-        game.wait_frame();
-
-        game.process_dpad();
-        game.process_movement();
+    while true {
+        wait_for_vblank();
     }
 }
 
