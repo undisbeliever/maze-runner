@@ -73,12 +73,15 @@ func reset_registers() {
 
 
         // Reset the DMA registers
-        // ::ANNOY: cannot do this with 16 bit A::
-        x = 0x80 - 1;
-        do {
-            (0x4300 as *u8)[x] = 0;
-            x--;
-        } while !negative;
+        mem16();
+        #[mem16] {
+            x = 0x80 - 2;
+            do {
+                *((0x4300 as u16 + x as u16) as *u16) = 0;
+                x--;
+                x--;
+            } while !negative;
+        }
     }
 
     data_bank = pop();
