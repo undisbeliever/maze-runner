@@ -184,19 +184,19 @@ inline func init_ppu() {
 
 
     snes.ppu.cgram_address = 0;
-    transfer_to_cgram(((far &mode7_palette) as u24 >> 16) as u8, &mode7_palette as u16, sizeof(typeof(mode7_palette)));
+    transfer_to_cgram(#:far& mode7_palette, &mode7_palette as u16, sizeof(typeof(mode7_palette)));
 
     snes.ppu.vram_address_hl = xx = 0;
-    transfer_vram_h(((far &mode7_tiles) as u24 >> 16) as u8, &mode7_tiles as u16, sizeof(typeof(mode7_tiles)));
+    transfer_vram_h(#:far& mode7_tiles, &mode7_tiles as u16, sizeof(typeof(mode7_tiles)));
 
     snes.ppu.vram_address_hl = xx = 0;
-    transfer_vram_l(((far &map) as u24 >> 16) as u8, &map as u16, sizeof(typeof(map)));
+    transfer_vram_l(#:far& map, &map as u16, sizeof(typeof(map)));
 }
 
 
 #[mem8, idx16]
 inline func init() {
-    load_map(((far &levels.map01) as u24 >> 16) as u8, &levels.map01 as u16);
+    load_map(#:far& levels.map01, &levels.map01 as u16);
 
 
     // Reset values
