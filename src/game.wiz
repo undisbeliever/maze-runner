@@ -34,10 +34,10 @@ in rodata0 {
 }
 
 enum Direction : u8 {
-    RIGHT,
-    LEFT,
-    DOWN,
-    UP,
+    NORTH,
+    EAST,
+    SOUTH,
+    WEST,
     NONE,
     DEAD,
 };
@@ -47,13 +47,16 @@ let N_MOVEMENT_DIRECTIONS = 4;
 
 in rodata0 {
     const dual_direction_tiles : [u8] = [
-// current direction:   right   left    down    up
-                        0xA,    0x5,    0xC,    0xD,    //   right
-                        0x5,    0xA,    0xE,    0xF,    //   left
-                        0xF,    0xD,    0xB,    0x5,    //   down
-                        0xE,    0xC,    0x5,    0xB,    //   up
-                        0x7,    0x6,    0x9,    0x8,    //   none
+// current direction:   north   east    south   west
+                        0xB,    0xE,    0x5,    0xC,    //   north
+                        0xD,    0xA,    0xC,    0x5,    //   east
+                        0x5,    0xF,    0xB,    0xD,    //   south
+                        0xF,    0x5,    0xE,    0xA,    //   west
+                        0x8,    0x7,    0x9,    0x6,    //   none
         ];                                              // previous direction
+    const half_direction_tiles : [u8] = [
+                        0x9,    0x6,    0x8,    0x7,
+        ];
 }
 let INVALID_MOVEMENT_TILE = 0x5;
 
@@ -331,16 +334,16 @@ inline func process_dpad() {
     a = >:joypad1.pressed;
 
     if a & joypadh.RIGHT != 0 {
-        a = Direction.RIGHT as u8;
+        a = Direction.EAST as u8;
     }
     else if a & joypadh.LEFT != 0 {
-        a = Direction.LEFT as u8;
+        a = Direction.WEST as u8;
     }
     else if a & joypadh.UP != 0 {
-        a = Direction.UP as u8;
+        a = Direction.NORTH as u8;
     }
     else if a & joypadh.DOWN != 0 {
-        a = Direction.DOWN as u8;
+        a = Direction.SOUTH as u8;
     }
     else {
         return;
@@ -358,26 +361,26 @@ inline func process_movement() {
 
     a = direction as u8;
     if zero {
-        // 0, right
-        xx = position.x;
-        xx++;
-        position.x = xx;
-    }
-    else if a == Direction.LEFT as u8 {
-        xx = position.x;
+        // 0, north
+        xx = position.y;
         xx--;
-        position.x = xx;
+        position.y = xx;
         xx++;               // required for system to detect new tiles correctly
     }
-    else if a == Direction.DOWN as u8 {
+    else if a == Direction.EAST as u8 {
+        xx = position.x;
+        xx++;
+        position.x = xx;
+    }
+    else if a == Direction.SOUTH as u8 {
         xx = position.y;
         xx++;
         position.y = xx;
     }
-    else if a == Direction.UP as u8 {
-        xx = position.y;
+    else if a == Direction.WEST as u8 {
+        xx = position.x;
         xx--;
-        position.y = xx;
+        position.x = xx;
         xx++;               // required for system to detect new tiles correctly
     }
     else if a == Direction.NONE as u8 {
@@ -460,11 +463,16 @@ inline func process_movement() {
 
                     // Set movement tile (if unused)
                     if a == 0 {
+                        idx8();
+                        #[idx8] {
+                            x = previous_direction as u8;
+                            dptmp_b0 = a = ((far &half_direction_tiles as u24) as far *u8)[x];
+                        }
+                        idx16();
+
                         xx = previous_tile_index;
                         a = get_map_tile(xx);
-                        a &= 0xf0;
-                        a += previous_direction as u8;
-                        a += FIRST_MOVEMENT_TILE;
+                        a = (a & 0xf0) + dptmp_b0;
                         set_map_tile(xx, a);
                     }
                 }
