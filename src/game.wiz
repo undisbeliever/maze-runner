@@ -133,10 +133,10 @@ func position_to_tile_index() : u16 in xx {
 
 #[mem8, idx16]
 inline func load_map(map_bank : u8 in a, map_addr : u16 in yy) {
-    push(data_bank);
+    push8(data_bank);
 
-    push(a);
-    data_bank = pop();
+    push8(a);
+    data_bank = pop8();
 
     xx = 0;
     do {
@@ -148,7 +148,7 @@ inline func load_map(map_bank : u8 in a, map_addr : u16 in yy) {
         xx++;
     } while (xx < MAP_TILE_SIZE);
 
-    data_bank = pop();
+    data_bank = pop8();
 }
 
 #[mem8, idx16]

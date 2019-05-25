@@ -8,22 +8,19 @@ in code {
 #[nmi] func nmi_handler() {
     mem16();
     #[mem16] {
-        push(data_bank);
-        push(aa);
+        push8(data_bank);
+        push16(aa);
 
-        push(program_bank);
-        data_bank = pop();
+        push8(program_bank);
+        data_bank = pop8();
 
         frame_counter.loword++;
         if zero {
             frame_counter.hiword++;
         }
-    }
 
-    // ::BUG cannot do `aa = pop()`::
-    #[mem8] {
-        a = pop();
-        data_bank = pop();
+        aa = pop16();
+        data_bank = pop8();
     }
 
     nmireturn;
@@ -50,8 +47,8 @@ inline func wait_for_vblank() {
     #[mem8, idx16] {
         ss = xx = STACK_TOP;
 
-        push(a = 0x80);
-        data_bank = pop();
+        push8(a = 0x80);
+        data_bank = pop8();
 
         mem8_idx8();
         #[mem8, idx8] {

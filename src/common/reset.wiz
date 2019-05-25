@@ -10,13 +10,13 @@ in code {
 //
 // NOTE: Does not set the address or mode 7 registers
 func reset_registers() {
-    push(p);
-    push(data_bank);
+    push8(p);
+    push8(data_bank);
 
     mem8_idx8();
     #[mem8, idx8] {
-        push(a = 0x80);
-        data_bank = pop();
+        push8(a = 0x80);
+        data_bank = pop8();
 
         // Disable HDMA
         snes.dma.hdma_enable = 0;
@@ -84,8 +84,8 @@ func reset_registers() {
         }
     }
 
-    data_bank = pop();
-    p = pop();
+    data_bank = pop8();
+    p = pop8();
 }
 
 
@@ -101,10 +101,10 @@ func reset_registers() {
 // ASSUMES: display is not in overscan mode.
 #[mem8, idx8]
 func reset_oam() {
-    push(data_bank);
+    push8(data_bank);
 
-    push(a = 0x80);
-    data_bank = pop();
+    push8(a = 0x80);
+    data_bank = pop8();
 
 
     // Disable HDMA
@@ -134,7 +134,7 @@ func reset_oam() {
         snes.ppu.oam_write_data = 0;
     }
 
-    data_bank = pop();
+    data_bank = pop8();
 }
 
 
@@ -153,8 +153,8 @@ func reset_oam() {
 
     mem8();
     #[mem8, idx16] {
-        push(a = 0x80);
-        data_bank = pop();
+        push8(a = 0x80);
+        data_bank = pop8();
 
         snes.rom.speed = snes.rom.SPEED_SLOW;
 
