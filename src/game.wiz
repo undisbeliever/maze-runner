@@ -12,13 +12,12 @@ let MAP_TILE_WIDTH      = 128;
 let MAP_TILE_HEIGHT     = 128;
 let MAP_TILE_SIZE       = MAP_TILE_WIDTH * MAP_TILE_HEIGHT;
 
-let FIRST_WALL_TILE     = 0x40;
-
-let STARTING_TILE       = 0x05;
+let P1_STARTING_TILE    = 0x04;
 
 let TARGET_TILE         = 0x01;
 let SMALL_TARGET_TILE   = 0x02;
 
+// All tiles greater than this value are treated as solid
 let FIRST_MOVEMENT_TILE = 6;
 
 
@@ -218,7 +217,7 @@ inline func init() {
 
 
     // Extract starting position and n targets
-    //  NOTE: also normalizes SMALL_TARGET_TILE to TARGET_TILE and STARTING_TILE to 0.
+    //  NOTE: also normalizes SMALL_TARGET_TILE to TARGET_TILE and P1_STARTING_TILE to 0.
 
     // Reuse previous_tile_index to store previous_tile_index
     previous_tile_index = xx = MAP_TILE_SIZE / 2 - (MAP_TILE_WIDTH / 2);
@@ -228,22 +227,16 @@ inline func init() {
     for xx in 0 .. MAP_TILE_SIZE {
         a = get_map_tile(xx);
 
-        if a < FIRST_WALL_TILE {
-            a &= 0x0f;
-            if a == STARTING_TILE {
-                previous_tile_index = xx;
-                set_map_tile_imm(xx, 0);
-            }
-            else if (a == SMALL_TARGET_TILE) {
-                a = get_map_tile(xx);
-                a--;
-                set_map_tile_imm(xx, a);
-
-                yy++;
-            }
-            else if (a == TARGET_TILE) {
-                yy++;
-            }
+        if a == P1_STARTING_TILE {
+            previous_tile_index = xx;
+            set_map_tile_imm(xx, 0);
+        }
+        else if (a == SMALL_TARGET_TILE) {
+            set_map_tile_imm(xx, TARGET_TILE);
+            yy++;
+        }
+        else if (a == TARGET_TILE) {
+            yy++;
         }
     }
 
@@ -401,12 +394,7 @@ inline func process_movement() {
     if zero {
         // Set previous tile
         {
-            xx = previous_tile_index;
-            a = get_map_tile(xx);
-            _tmp_b = a = a & 0xf0;
-
             a = lookup_dual_direction_tile(direction as u8);
-            a |= _tmp_b;
             xx = previous_tile_index;
             set_map_tile(xx, a);
         }
@@ -414,16 +402,9 @@ inline func process_movement() {
         // Test if we are in a wall or movement tile
         xx = position_to_tile_index();
         a = get_map_tile(xx);
-        if a >= FIRST_WALL_TILE {
+        if a >= FIRST_MOVEMENT_TILE {
             a = Direction.DEAD as u8;
             direction = a as Direction;
-        }
-        else {
-            a &= 0xf;
-            if a >= FIRST_MOVEMENT_TILE {
-                a = Direction.DEAD as u8;
-                direction = a as Direction;
-            }
         }
     }
     else if a == 4 {
@@ -451,30 +432,25 @@ inline func process_movement() {
                 // Test which tile we are on
                 xx = previous_tile_index;
                 a = get_map_tile(xx);
-                if a < FIRST_WALL_TILE {
-                    a &= 0x0f;
-                    if a == TARGET_TILE {
-                        increment_score();
+                if a == TARGET_TILE {
+                    increment_score();
 
-                        // ::ANNOY cannot jump to set movement tile::
-                        // replace target tile with movement tile
-                        a = 0;
+                    // ::ANNOY cannot jump to set movement tile::
+                    // replace target tile with movement tile
+                    a = 0;
+                }
+
+                // Set movement tile (if unused)
+                if a == 0 {
+                    idx8();
+                    #[idx8] {
+                        x = previous_direction as u8;
+                        a = ((far &half_direction_tiles as u24) as far *u8)[x];
                     }
+                    idx16();
 
-                    // Set movement tile (if unused)
-                    if a == 0 {
-                        idx8();
-                        #[idx8] {
-                            x = previous_direction as u8;
-                            dptmp_b0 = a = ((far &half_direction_tiles as u24) as far *u8)[x];
-                        }
-                        idx16();
-
-                        xx = previous_tile_index;
-                        a = get_map_tile(xx);
-                        a = (a & 0xf0) + dptmp_b0;
-                        set_map_tile(xx, a);
-                    }
+                    xx = previous_tile_index;
+                    set_map_tile(xx, a);
                 }
             }
         }
