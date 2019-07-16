@@ -70,10 +70,16 @@ in shadow {
         x : u16,
         y : u16,
     };
-    // Position of the player
+    // Position of the camera
     var position : u16point;
 
-    var previous_tile_index : u16;
+    // Holds the position within the tile
+    // Incremented every frame
+    // When value is 4 the snake changes direction
+    // When value is 8 the snake advances one tile and reset to 0
+    var tile_movement_counter : u8;
+
+    var current_tile_index : u16;
 
     // Current direction of movement
     var direction : Direction;
@@ -112,24 +118,6 @@ inline func get_map_tile(index : u16 in xx) : u8 in a {
 inline func set_map_tile_imm(index : u16 in xx, value : u8 in a) {
     // ::ANNOY This is the only way to force wiz to use long addressing mode::
     ((far &map as u24) as far *u8)[xx] = a;
-}
-
-#[mem8, idx16]
-func position_to_tile_index() : u16 in xx {
-    let tmp = dptmp_w0;
-    let AXIS_MASK = 127;
-
-    mem16();
-    #[mem16, idx16] {
-        tmp = aa = (position.x >>> 3) & AXIS_MASK;
-        aa = (position.y & (AXIS_MASK <<< 3)) <<< (7 - 3);
-        aa += tmp;
-
-        xx = aa;
-    }
-    mem8();
-
-    return xx;
 }
 
 
@@ -212,15 +200,16 @@ inline func init() {
     targets_eaten = xx;
     vblank_tile_queue_pos = xx;
 
-    xx = 0xffff;
-    previous_tile_index = xx;
+
+    // By default start in the centre of the map
+    current_tile_index = xx = MAP_TILE_SIZE / 2 + MAP_TILE_WIDTH / 2;
+    tile_movement_counter = a = 4;
 
 
     // Extract starting position and n targets
     //  NOTE: also normalizes SMALL_TARGET_TILE to TARGET_TILE and P1_STARTING_TILE to 0.
 
-    // Reuse previous_tile_index to store previous_tile_index
-    previous_tile_index = xx = MAP_TILE_SIZE / 2 - (MAP_TILE_WIDTH / 2);
+    current_tile_index = xx = MAP_TILE_SIZE / 2 - (MAP_TILE_WIDTH / 2);
 
     // yy holds n_targets
     yy = 0;
@@ -228,7 +217,7 @@ inline func init() {
         a = get_map_tile(xx);
 
         if a == P1_STARTING_TILE {
-            previous_tile_index = xx;
+            current_tile_index = xx;
             set_map_tile_imm(xx, 0);
         }
         else if (a == SMALL_TARGET_TILE) {
@@ -246,8 +235,8 @@ inline func init() {
     #[mem16] {
         let TILE_AXIS_MASK = (MAP_TILE_WIDTH - 1);
 
-        position.x = aa = ((previous_tile_index & TILE_AXIS_MASK) << 3) + 4;
-        position.y = aa = ((previous_tile_index >>> (7 - 3)) & (TILE_AXIS_MASK << 3)) + 4;
+        position.x = aa = ((current_tile_index & TILE_AXIS_MASK) << 3) + 4;
+        position.y = aa = ((current_tile_index >>> (7 - 3)) & (TILE_AXIS_MASK << 3)) + 4;
     }
     mem8();
 
@@ -349,16 +338,18 @@ inline func process_dpad() {
 inline func process_movement() {
     let _tmp_b = dptmp_b3;
 
+    a = direction as u8;
+    if a == Direction.NONE as u8 {
+        a = next_direction as u8;
+        direction = a as Direction;
+    }
+
     // Initially tried to do a `jsr (addr,x)` here, but I couldn't
     // figure out how to do it.
-
-    a = direction as u8;
-    if zero {
-        // 0, north
+    if a == Direction.NORTH as u8 {
         xx = position.y;
         xx--;
         position.y = xx;
-        xx++;               // required for system to detect new tiles correctly
     }
     else if a == Direction.EAST as u8 {
         xx = position.x;
@@ -374,86 +365,94 @@ inline func process_movement() {
         xx = position.x;
         xx--;
         position.x = xx;
-        xx++;               // required for system to detect new tiles correctly
-    }
-    else if a == Direction.NONE as u8 {
-        a = next_direction as u8;
-        direction = a as Direction;
-        xx = 4;
     }
     else {
         // DEAD
-        xx = 0xffff;
+        ^return;
     }
 
 
-    // Preform tile test and update map (if necessary)
+    // Process tile movement
 
-    // x = axis of movement;
-    a = x & 7;
-    if zero {
-        // Set previous tile
-        {
-            a = lookup_dual_direction_tile(direction as u8);
-            xx = previous_tile_index;
-            set_map_tile(xx, a);
+    tile_movement_counter++;
+    a = tile_movement_counter;
+
+    if a == 4 {
+        // In middle of tile, change tile direction (if next_direction is valid)
+
+        a = direction as u8;
+        previous_direction = a as Direction;
+
+        a = lookup_dual_direction_tile(next_direction as u8);
+        if a != INVALID_MOVEMENT_TILE {
+            a = next_direction as u8;
+            direction = a as Direction;
         }
 
+        // Test if player has eaten a target tile
+        a = get_map_tile(xx = current_tile_index);
+        if a == TARGET_TILE {
+            increment_score();
+        }
+
+        // Set movement tile
+        idx8();
+        #[idx8] {
+            x = previous_direction as u8;
+            a = ((far &half_direction_tiles as u24) as far *u8)[x];
+        }
+        idx16();
+
+        set_map_tile(xx = current_tile_index, a);
+    }
+    else if a >= 8 {
+        // Moved onto a new tile
+
+        // Set previous tile
+        a = lookup_dual_direction_tile(direction as u8);
+        set_map_tile(xx = current_tile_index, a = a);
+
+        // Update tile index
+        xx = current_tile_index;
+        a = direction as u8;
+        if a == Direction.NORTH as u8 {
+            mem16();
+            #[mem16] {
+                xx = aa = xx - MAP_TILE_HEIGHT;
+            }
+            mem8();
+        }
+        else if a == Direction.EAST as u8 {
+            xx++;
+        }
+        else if a == Direction.SOUTH as u8 {
+            mem16();
+            #[mem16] {
+                xx = aa = xx + MAP_TILE_HEIGHT;
+            }
+            mem8();
+        }
+        else if a == Direction.WEST as u8 {
+            xx--;
+        }
+
+        // Make player dead if outside the map
+        if xx >= MAP_TILE_SIZE {
+            a = Direction.DEAD as u8;
+            direction = a as Direction;
+        }
+
+        current_tile_index = xx;
+
         // Test if we are in a wall or movement tile
-        xx = position_to_tile_index();
         a = get_map_tile(xx);
         if a >= FIRST_MOVEMENT_TILE {
             a = Direction.DEAD as u8;
             direction = a as Direction;
         }
-    }
-    else if a == 4 {
-        a = next_direction as u8;
-        if a < N_MOVEMENT_DIRECTIONS {
-            // In the middle of a tile
 
-            xx = position_to_tile_index();
-
-            if xx != previous_tile_index {
-                previous_tile_index = xx;
-
-                // Update direction (if next_direction is valid)
-                {
-                    a = direction as u8;
-                    previous_direction = a as Direction;
-
-                    a = lookup_dual_direction_tile(next_direction as u8);
-                    if a != INVALID_MOVEMENT_TILE {
-                        a = next_direction as u8;
-                        direction = a as Direction;
-                    }
-                }
-
-                // Test which tile we are on
-                xx = previous_tile_index;
-                a = get_map_tile(xx);
-                if a == TARGET_TILE {
-                    increment_score();
-
-                    // ::ANNOY cannot jump to set movement tile::
-                    // replace target tile with movement tile
-                    a = 0;
-                }
-
-                // Set movement tile (if unused)
-                if a == 0 {
-                    idx8();
-                    #[idx8] {
-                        x = previous_direction as u8;
-                        a = ((far &half_direction_tiles as u24) as far *u8)[x];
-                    }
-                    idx16();
-
-                    xx = previous_tile_index;
-                    set_map_tile(xx, a);
-                }
-            }
-        }
+        // Reset tile counter
+        tile_movement_counter = 0;
     }
 }
 
