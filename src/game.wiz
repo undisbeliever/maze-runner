@@ -16,6 +16,9 @@ let MAP_TILE_WIDTH      = 128;
 let MAP_TILE_HEIGHT     = 128;
 let MAP_TILE_SIZE       = MAP_TILE_WIDTH * MAP_TILE_HEIGHT;
 
+// All colours less than this value are considered non-solid
+let FIRST_SOLID_COLOR   = 2;
+
 let P1_STARTING_TILE    = 0x04;
 
 let TARGET_TILE         = 0x01;
@@ -23,6 +26,8 @@ let SMALL_TARGET_TILE   = 0x02;
 
 let SNAKE_NORTH_TILE      = 0x0b;
 let SNAKE_HALF_NORTH_TILE = 0x09;
+
+let SNAKE_HEAD_TILE_ID    = P1_STARTING_TILE;
 
 // All tiles greater than this value are treated as solid
 let FIRST_MOVEMENT_TILE = 6;
@@ -37,6 +42,7 @@ namespace levels {
 in rodata0 {
     const mode7_tiles   = embed "../gen/mode-7-tiles.m7tiles";
     const mode7_palette = embed "../gen/mode-7-tiles.pal";
+    const snake_movement_tiles = embed "../gen/snake-movement-tiles.m7tiles";
 }
 
 enum Direction : u8 {
@@ -62,8 +68,18 @@ in rodata0 {
     const half_direction_tiles : [u8] = [
                         0x9,    0x6,    0x8,    0x7,
         ];
+    let INVALID_MOVEMENT_TILE = 0x5;
+
+
+    const snake_head_movement_tile_ids : [u8] = [
+// current direction:   north   east    south    west
+                        0x0*8,  0x2*8,  0xff,    0x1*8, //   north
+                        0x5*8,  0x3*8,  0x4*8,   0xff,  //   east
+                        0xff,   0x8*8,  0x6*8,   0x7*8, //   south
+                        0xb*8,  0xff,   0xa*8,   0x9*8, //   west
+        ];                                              // previous direction
+    let LAST_SNAKE_HEAD_TILE = 96;
 }
-let INVALID_MOVEMENT_TILE = 0x5;
 
 
 in shadow {
@@ -87,6 +103,10 @@ in shadow {
 
     var current_tile_index : u16;
 
+    // The value of the current tile under the `current_tile_index`
+    // before the snake waked over it.
+    var current_tile_id : u8;
+
     // Current direction of movement
     var direction : Direction;
 
@@ -96,6 +116,10 @@ in shadow {
 
     // Next direction to move (input buffer)
     var next_direction : Direction;
+
+    // A buffer to store the head tile of the snake
+    // Transferred to VRAM on every frame
+    var snake_head_tile : [u8 ; 64];
 
 
     // The next tile to update the tiles during VBlank
@@ -244,7 +268,7 @@ inline func init() {
     a = Direction.NORTH as u8;
     previous_direction = a as Direction;
 
-    set_map_tile(xx = current_tile_index, a = SNAKE_NORTH_TILE);
+    set_map_tile_imm(xx = current_tile_index, a = SNAKE_NORTH_TILE);
 
     mem16();
     #[mem16] {
@@ -264,7 +288,9 @@ inline func init() {
     }
     mem8();
 
-    set_map_tile(xx = current_tile_index, a = SNAKE_HALF_NORTH_TILE);
+    current_tile_id = a = get_map_tile(xx = current_tile_index);
+
+    set_map_tile_imm(xx = current_tile_index, a = SNAKE_HEAD_TILE_ID);
 
     init_ppu();
 }
@@ -297,6 +323,12 @@ func wait_frame() {
         } while !zero;
     }
     vblank_tile_queue_pos = yy = 0;
+
+
+    // Transfer snake_head_tile buffer to VRAM
+
+    snes.ppu.vram_address_hl = xx = SNAKE_HEAD_TILE_ID * 64;
+    transfer_vram_h(#:far& snake_head_tile, &snake_head_tile as u16, sizeof(typeof(snake_head_tile)));
 
 
     snes.ppu.brightness = a = 0xf;
@@ -405,11 +437,6 @@ inline func process_movement() {
     if a == 4 {
         // In middle of tile, change tile direction (if next_direction is valid)
 
-        a = direction as u8;
-        if a < Direction.NONE as u8 {
-            previous_direction = a as Direction;
-        }
-
         a = lookup_dual_direction_tile(next_direction as u8);
         if a != INVALID_MOVEMENT_TILE {
             a = next_direction as u8;
@@ -417,20 +444,13 @@ inline func process_movement() {
         }
 
         // Test if player has eaten a target tile
-        a = get_map_tile(xx = current_tile_index);
+        a = current_tile_id;
         if a == TARGET_TILE {
             increment_score();
-        }
 
-        // Set movement tile
-        idx8();
-        #[idx8] {
-            x = previous_direction as u8;
-            a = ((far &half_direction_tiles as u24) as far *u8)[x];
+            // Remove target from screen
+            current_tile_id = 0;
         }
-        idx16();
-
-        set_map_tile(xx = current_tile_index, a);
     }
     else if a >= 8 {
         // Moved onto a new tile
@@ -438,6 +458,9 @@ inline func process_movement() {
         // Set previous tile
         a = lookup_dual_direction_tile(direction as u8);
         set_map_tile(xx = current_tile_index, a = a);
+
+        a = direction as u8;
+        previous_direction = a as Direction;
 
         // Update tile index
         xx = current_tile_index;
@@ -472,15 +495,117 @@ inline func process_movement() {
         current_tile_index = xx;
 
         // Test if we are in a wall or movement tile
-        a = get_map_tile(xx);
+        current_tile_id = a = get_map_tile(xx);
         if a >= FIRST_MOVEMENT_TILE {
             a = Direction.DEAD as u8;
             direction = a as Direction;
         }
 
+        // Update which tile in the map is the snake head tile
+        set_map_tile(xx, a = SNAKE_HEAD_TILE_ID);
+
         // Reset tile counter
         tile_movement_counter = 0;
     }
+}
+
+
+#[mem8, idx16]
+inline func draw_snake_head_tile() {
+    let _tmp = dptmp_b0;
+    let _current_tile_data = dptmp_faraddr;
+
+    debug_break();
+
+    tile_id_to_address_in_dptmp_faraddr(a = current_tile_id);
+
+    // Calculate index of the snake movement frame
+    a = direction as u8;
+    if a >= N_MOVEMENT_DIRECTIONS {
+        a = previous_direction as u8;
+    }
+    _tmp = a;
+
+    a = previous_direction as u8;
+    if a >= N_MOVEMENT_DIRECTIONS as u8 {
+        return;
+    }
+    a <<<= 2;
+    a += _tmp;
+
+    idx8();
+    #[mem8, idx8] {
+        // ::ANNOY this is the only way I know how to force long addressing mode::
+        x = a;
+        a = ((far &snake_head_movement_tile_ids as u24) as far *u8)[x];
+    }
+    idx16();
+
+    a += tile_movement_counter;
+
+    mem16();
+    #[mem16] {
+        xx = aa = (aa & 0xff) << 6;     // Convert tileId to index
+    }
+    mem8();
+
+    yy = 0;
+
+    do {
+        // ::ANNOY this is the only way I know how to force long addressing mode::
+        a = ((far &snake_movement_tiles as u24) as far *u8)[xx];
+        if a >= FIRST_SOLID_COLOR {
+            snake_head_tile[yy] = a;
+
+            // Kill player if the snake collides with a solid pixel
+            // and current_tile_id != TARGET_TILE.
+            a = _current_tile_data[yy];
+            if a >= FIRST_SOLID_COLOR {
+                a = current_tile_id;
+                if a != TARGET_TILE {
+                    a = Direction.DEAD as u8;
+                    direction = a as Direction;
+                }
+            }
+        }
+        else {
+            // Movement tile color is transparent, draw pixel from the current tile
+            a = _current_tile_data[yy];
+            snake_head_tile[yy] = a;
+        }
+
+        xx++;
+        yy++;
+    } while yy < 64;
+}
+
+
+// Calculates the address of a tile, storing it in `dptmp_faraddr`
+#[mem8, idx16]
+func tile_id_to_address_in_dptmp_faraddr(tile_id : u8 in a) {
+    if a == SNAKE_HEAD_TILE_ID {
+        a = #:far& snake_head_tile;
+        xx = &snake_head_tile as u16;
+    }
+    else {
+        mem16();
+        #[mem16] {
+            aa = ((aa & 0xff) <<< 6);
+            aa += &mode7_tiles as u16;
+            xx = aa;
+        }
+        mem8();
+
+        a = #:far& mode7_tiles;
+    }
+
+    // ::ANNOY no easy way to write a 16 bit value to a `far *u8`::
+    var _addr @ &dptmp_faraddr : u16;
+    _addr = xx;
+
+    // ::ANNOY no easy way to write a the bank byte of a `far *u8`::
+    var _far_addr @ &dptmp_faraddr : [u8 ; 3];
+    _far_addr[2] = a;
 }
 
 
@@ -544,6 +669,8 @@ func gameloop() {
 
         process_dpad();
         process_movement();
+
+        draw_snake_head_tile();
 
         a = direction as u8;
         break if a == Direction.DEAD as u8;
