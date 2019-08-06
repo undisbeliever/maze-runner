@@ -21,6 +21,9 @@ let P1_STARTING_TILE    = 0x04;
 let TARGET_TILE         = 0x01;
 let SMALL_TARGET_TILE   = 0x02;
 
+let SNAKE_NORTH_TILE      = 0x0b;
+let SNAKE_HALF_NORTH_TILE = 0x09;
+
 // All tiles greater than this value are treated as solid
 let FIRST_MOVEMENT_TILE = 6;
 
@@ -55,7 +58,6 @@ in rodata0 {
                         0xD,    0xA,    0xC,    0x5,    //   east
                         0x5,    0xF,    0xB,    0xD,    //   south
                         0xF,    0x5,    0xE,    0xA,    //   west
-                        0x8,    0x7,    0x9,    0x6,    //   none
         ];                                              // previous direction
     const half_direction_tiles : [u8] = [
                         0x9,    0x6,    0x8,    0x7,
@@ -195,11 +197,6 @@ inline func init() {
 
     // Reset values
 
-    a = Direction.NONE as u8;
-    direction = a as Direction;
-    previous_direction = a as Direction;
-    next_direction = a as Direction;
-
     xx = 0;
     targets_eaten = xx;
     vblank_tile_queue_pos = xx;
@@ -235,15 +232,39 @@ inline func init() {
 
     n_targets_left = yy;
 
+
+    // The snake starts with a 1 tile tail and is facing north
+    // Draw the tail and first tile of the snake
+    // (and set the position of the camera)
+
+    a = Direction.NONE as u8;
+    direction = a as Direction;
+    next_direction = a as Direction;
+
+    a = Direction.NORTH as u8;
+    previous_direction = a as Direction;
+
+    set_map_tile(xx = current_tile_index, a = SNAKE_NORTH_TILE);
+
     mem16();
     #[mem16] {
         let TILE_AXIS_MASK = (MAP_TILE_WIDTH - 1);
+
+        // Ensure there is enough room to move the snake
+        aa = current_tile_index;
+        if aa < MAP_TILE_WIDTH * 5 {
+            break_handler();
+        }
+
+        // Move current_tile_index north one tile
+        current_tile_index = aa = aa - MAP_TILE_WIDTH;
 
         position.x = aa = ((current_tile_index & TILE_AXIS_MASK) << 3) + 4;
         position.y = aa = ((current_tile_index >>> (7 - 3)) & (TILE_AXIS_MASK << 3)) + 4;
     }
     mem8();
 
+    set_map_tile(xx = current_tile_index, a = SNAKE_HALF_NORTH_TILE);
 
     init_ppu();
 }
@@ -342,14 +363,10 @@ inline func process_dpad() {
 inline func process_movement() {
     let _tmp_b = dptmp_b3;
 
-    a = direction as u8;
-    if a == Direction.NONE as u8 {
-        a = next_direction as u8;
-        direction = a as Direction;
-    }
 
     // Initially tried to do a `jsr (addr,x)` here, but I couldn't
     // figure out how to do it.
+    a = direction as u8;
     if a == Direction.NORTH as u8 {
         xx = position.y;
         xx--;
@@ -370,6 +387,10 @@ inline func process_movement() {
         xx--;
         position.x = xx;
     }
+    else if a == Direction.NONE as u8 {
+        // No not increment tile_movement_counter when direction is NONE
+        tile_movement_counter--;
+    }
     else {
         // DEAD
         ^return;
@@ -385,7 +406,9 @@ inline func process_movement() {
         // In middle of tile, change tile direction (if next_direction is valid)
 
         a = direction as u8;
-        previous_direction = a as Direction;
+        if a < Direction.NONE as u8 {
+            previous_direction = a as Direction;
+        }
 
         a = lookup_dual_direction_tile(next_direction as u8);
         if a != INVALID_MOVEMENT_TILE {
@@ -494,7 +517,7 @@ func lookup_dual_direction_tile(direction : u8 in a) : u8 in a {
 
     a = previous_direction as u8;
     if a >= Direction.DEAD as u8 {
-        a = Direction.NONE as u8;
+        return INVALID_MOVEMENT_TILE;
     }
     a <<<= 2;
     // carry clear
