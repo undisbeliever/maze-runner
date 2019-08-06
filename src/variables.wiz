@@ -1,3 +1,7 @@
+// This file is part of Maze Runner.
+// Copyright (c) 2019, Marcus Rowe <undisbeliever@gmail.com>.
+// Distributed under The MIT License, see the LICENSE file for more details.
+
 import "memmap";
 
 in zeropage {
