@@ -26,6 +26,12 @@ gen/mode-7-tiles.m7tiles gen/mode-7-tiles.pal: tools/png2snes.py resources/mode-
 RESOURCES += gen/mode-7-tiles.m7tiles gen/mode-7-tiles.pal
 
 
+gen/snake-movement-tiles.m7tiles gen/snake-movement-tiles.pal: tools/png2snes.py resources/snake-movement-tiles.png
+	python3 tools/png2snes.py -f=mode7 -c=128 -t gen/snake-movement-tiles.m7tiles -p gen/snake-movement-tiles.pal resources/snake-movement-tiles.png
+
+RESOURCES += gen/snake-movement-tiles.m7tiles gen/snake-movement-tiles.pal
+
+
 gen/%.m7map: resources/maps/%.tmx tools/tmx2mode7map.py
 	python3 tools/tmx2mode7map.py -o $@ $<
 
