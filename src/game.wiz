@@ -10,6 +10,8 @@ import "common/joypad";
 import "common/interrupts";
 import "../wiz/examples/snes/common/snes/snes";
 
+import "../gen/mode7-perepective-hdma.wiz";
+
 namespace game {
 
 let MAP_TILE_WIDTH      = 128;
@@ -39,7 +41,7 @@ namespace levels {
     }
 }
 
-in rodata0 {
+in rodata2 {
     const mode7_tiles   = embed "../gen/mode-7-tiles.m7tiles";
     const mode7_palette = embed "../gen/mode-7-tiles.pal";
     const snake_movement_tiles = embed "../gen/snake-movement-tiles.m7tiles";
@@ -94,6 +96,10 @@ in shadow {
     };
     // Position of the camera
     var position : u16point;
+
+    // The current rotation of the camera
+    // If `camera_rotation` >= `mode7_hdma_data.N_ROTATIONS`, then HDMA perspective is disabled.
+    var camera_rotation : u8;
 
     // Holds the position within the tile
     // Incremented every frame
@@ -187,21 +193,6 @@ inline func init_ppu() {
     snes.ppu.screen_enable_mask = a = snes.ppu.SCREEN_ENABLE_BG1;
     snes.ppu.sub_screen_enable_mask = a = snes.ppu.SCREEN_ENABLE_BG1;
 
-    a = 1;
-    snes.ppu.mode7_a = 0;
-    snes.ppu.mode7_a = a;
-    snes.ppu.mode7_b = 0;
-    snes.ppu.mode7_b = 0;
-    snes.ppu.mode7_c = 0;
-    snes.ppu.mode7_c = 0;
-    snes.ppu.mode7_d = 0;
-    snes.ppu.mode7_d = a;
-
-    snes.ppu.mode7_center_x = 0;
-    snes.ppu.mode7_center_x = 0;
-    snes.ppu.mode7_center_y = 0;
-    snes.ppu.mode7_center_y = 0;
-
 
     snes.ppu.cgram_address = 0;
     transfer_to_cgram(#:far& mode7_palette, &mode7_palette as u16, sizeof(typeof(mode7_palette)));
@@ -268,6 +259,8 @@ inline func init() {
     a = Direction.NORTH as u8;
     previous_direction = a as Direction;
 
+    camera_rotation = 0;
+
     set_map_tile_imm(xx = current_tile_index, a = SNAKE_NORTH_TILE);
 
     mem16();
@@ -300,12 +293,79 @@ inline func init() {
 func wait_frame() {
     wait_for_vblank();
 
-    // Update scroll position
+    snes.dma.hdma_enable = 0;
 
-    snes.ppu.bg1_scroll_x = a = <:position.x - (256 / 2);
-    snes.ppu.bg1_scroll_x = a = >:position.x -# 0;
-    snes.ppu.bg1_scroll_y = a = <:position.y - (224 / 2);
-    snes.ppu.bg1_scroll_y = a = >:position.y -# 0;
+    a = camera_rotation;
+    ^if a >= mode7_hdma_data.N_ROTATIONS {
+        // HDMA perspective disabled
+
+        snes.ppu.bg1_scroll_x = a = <:position.x - (256 / 2 - 1);
+        snes.ppu.bg1_scroll_x = a = >:position.x -# 0;
+        snes.ppu.bg1_scroll_y = a = <:position.y - (224 / 2);
+        snes.ppu.bg1_scroll_y = a = >:position.y -# 0;
+
+        snes.ppu.mode7_center_x = 0;
+        snes.ppu.mode7_center_x = 0;
+        snes.ppu.mode7_center_y = 0;
+        snes.ppu.mode7_center_y = 0;
+
+        a = 1;
+        snes.ppu.mode7_a = 0;
+        snes.ppu.mode7_a = a;
+        snes.ppu.mode7_b = 0;
+        snes.ppu.mode7_b = 0;
+        snes.ppu.mode7_c = 0;
+        snes.ppu.mode7_c = 0;
+        snes.ppu.mode7_d = 0;
+        snes.ppu.mode7_d = a;
+    }
+    else {
+        // HDMA perspective enabled
+
+        snes.ppu.bg1_scroll_x = a = <:position.x - (256 / 2 - 1);
+        snes.ppu.bg1_scroll_x = a = >:position.x -# 0;
+        snes.ppu.bg1_scroll_y = a = <:position.y - (224 * 3 / 4 - 1);
+        snes.ppu.bg1_scroll_y = a = >:position.y -# 0;
+
+        snes.ppu.mode7_center_x = a = <:position.x;
+        snes.ppu.mode7_center_x = a = >:position.x;
+        snes.ppu.mode7_center_y = a = <:position.y;
+        snes.ppu.mode7_center_y = a = >:position.y;
+
+        // DMA 5: M7A
+        // DMA 6: M7B + M7C
+        // DMA 7: M7D
+
+        a = snes.dma.CONTROL_MODE_AA;
+        snes.dma5.control = a;
+        snes.dma7.control = a;
+        snes.dma6.control = a = snes.dma.CONTROL_MODE_AABB;
+
+        snes.dma5.mdma_dest = a = <:&snes.ppu.mode7_a;
+        snes.dma6.mdma_dest = a = <:&snes.ppu.mode7_b;
+        snes.dma7.mdma_dest = a = <:&snes.ppu.mode7_d;
+
+        a = #:far &mode7_hdma_data.tables;
+        snes.dma5.src_address_bank = a;
+        snes.dma6.src_address_bank = a;
+        snes.dma7.src_address_bank = a;
+
+        a = camera_rotation;
+
+        mem16();
+        #[mem16, idx16] {
+            xx = aa = (aa & mode7_hdma_data.ROTATION_MASK) << 1;
+
+            aa = *((far &mode7_hdma_data.tables as u24 + xx as u24) as far *u16);
+            snes.dma5.src_address_hl = aa;
+            snes.dma7.src_address_hl = aa;
+
+            snes.dma6.src_address_hl = aa = aa + mode7_hdma_data.TABLE_A_SIZE;
+        }
+        mem8();
+
+        snes.dma.hdma_enable = a = snes.dma.ENABLE_7 | snes.dma.ENABLE_6 | snes.dma.ENABLE_5;
+    }
 
 
     // Update tiles
@@ -368,7 +428,7 @@ func set_map_tile(index : u16 in xx, value : u8 in a) {
 
 
 #[mem8, idx16]
-inline func process_dpad() {
+inline func process_dpad_no_perspective() {
 
     a = >:joypad1.pressed;
 
@@ -388,6 +448,83 @@ inline func process_dpad() {
         return;
     }
     next_direction = a as Direction;
+}
+
+
+#[mem8, idx16]
+inline func process_dpad_perspective() {
+    idx8();
+    #[idx8] {
+        a = >:joypad1.pressed;
+        y = direction as u8;
+
+        if y == Direction.NONE as u8 {
+            // Snake is alive and not moving (first button press)
+
+            if a & joypadh.RIGHT != 0 {
+                y = Direction.EAST as u8;
+            }
+            else if a & joypadh.LEFT != 0 {
+                y = Direction.WEST as u8;
+            }
+            else if a & joypadh.UP != 0 {
+                y = Direction.NORTH as u8;
+            }
+
+            next_direction = y as Direction;
+        }
+        else if y < N_MOVEMENT_DIRECTIONS {
+            // Snake is alive and moving
+
+            if a & (joypadh.RIGHT | joypadh.LEFT) != 0 {
+                // only update next_direction if left or right is pressed
+
+                if a & joypadh.RIGHT != 0 {
+                    y++;
+                }
+                else {
+                    // left
+                    y--;
+                }
+                a = y & DIRECTION_MOVEMENT_MASK;
+                next_direction = a as Direction;
+            }
+        }
+    }
+    idx16();
+}
+
+#[mem8, idx16]
+inline func update_camera_rotation() {
+    a = camera_rotation;
+    return if a >= mode7_hdma_data.N_ROTATIONS;
+
+    a = direction as u8;
+    return if a >= N_MOVEMENT_DIRECTIONS;
+
+    idx8();
+    #[idx8] {
+        // a = direction
+        a = a << mode7_hdma_data.DIRECTION_ROTATION_SHIFT;
+        // a = target camera_rotation
+
+        if a != camera_rotation {
+            y = camera_rotation;
+
+            a = y >>> mode7_hdma_data.DIRECTION_ROTATION_SHIFT;
+
+            a = ++a & DIRECTION_MOVEMENT_MASK;
+            if a == direction as u8 {
+                y++;
+            }
+            else {
+                y--;
+            }
+
+            camera_rotation = a = y & mode7_hdma_data.ROTATION_MASK;
+        }
+    }
+    idx16();
 }
 
 
@@ -514,8 +651,6 @@ inline func process_movement() {
 inline func draw_snake_head_tile() {
     let _tmp = dptmp_b0;
     let _current_tile_data = dptmp_faraddr;
-
-    debug_break();
 
     tile_id_to_address_in_dptmp_faraddr(a = current_tile_id);
 
@@ -667,8 +802,17 @@ func gameloop() {
     ^do {
         wait_frame();
 
-        process_dpad();
+        a = camera_rotation;
+        if a >= mode7_hdma_data.N_ROTATIONS {
+            process_dpad_no_perspective();
+        }
+        else {
+            process_dpad_perspective();
+        }
+
         process_movement();
+
+        update_camera_rotation();
 
         draw_snake_head_tile();
 

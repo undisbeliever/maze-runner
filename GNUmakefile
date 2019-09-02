@@ -32,6 +32,12 @@ gen/snake-movement-tiles.m7tiles gen/snake-movement-tiles.pal: tools/png2snes.py
 RESOURCES += gen/snake-movement-tiles.m7tiles gen/snake-movement-tiles.pal
 
 
+gen/mode7-perepective-hdma.wiz: tools/mode7-perspective-hdma.py
+	python3 tools/mode7-perspective-hdma.py > $@
+
+RESOURCES += gen/mode7-perepective-hdma.wiz
+
+
 gen/%.m7map: resources/maps/%.tmx tools/tmx2mode7map.py
 	python3 tools/tmx2mode7map.py -o $@ $<
 

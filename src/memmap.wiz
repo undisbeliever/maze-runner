@@ -14,7 +14,7 @@ bank code     @ 0x808000 : [constdata;  0x8000];
 
 bank rodata0  @ 0x818000 : [constdata;  0x8000];
 bank rodata1  @ 0x828000 : [constdata;  0x8000];
-bank rodata3  @ 0x838000 : [constdata;  0x8000];
+bank rodata2  @ 0x838000 : [constdata;  0x8000];
 
 bank zeropage @ 0x000000 : [vardata;     0x100];
 bank stack    @ 0x000100 : [vardata;     0x100];
