@@ -26,7 +26,7 @@ func clear_vram(vram_waddr : u16 in xx, size : u16 in yy) {
     snes.dma0.control = a = snes.dma.CONTROL_MODE_AB | snes.dma.CONTROL_MDMA_NO_INCREMENT;
     snes.dma0.mdma_dest = a = <:&snes.ppu.vram_write_data_l;
     snes.dma0.src_address_hl = xx = &blank_byte as u16;
-    snes.dma0.src_address_bank = a = ((far &blank_byte) as u24 >> 16) as u8;
+    snes.dma0.src_address_bank = a = #:far &blank_byte;
     snes.dma0.mdma_size_hl = yy;
 
     snes.dma.mdma_enable = a = snes.dma.ENABLE_0;
@@ -52,7 +52,7 @@ func clear_cgram(color : u16 in xx, nColors : u16 in yy) {
     snes.dma0.control = a = snes.dma.CONTROL_MODE_AB | snes.dma.CONTROL_MDMA_NO_INCREMENT;
     snes.dma0.mdma_dest = a = <:&snes.ppu.vram_write_data_l;
     snes.dma0.src_address_hl = xx = &blank_byte as u16;
-    snes.dma0.src_address_bank = a = ((far &blank_byte) as u24 >> 16) as u8;
+    snes.dma0.src_address_bank = a = #:far &blank_byte;
 
     mem16();
     #[mem16] {
