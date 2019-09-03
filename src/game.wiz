@@ -18,6 +18,12 @@ let MAP_TILE_WIDTH      = 128;
 let MAP_TILE_HEIGHT     = 128;
 let MAP_TILE_SIZE       = MAP_TILE_WIDTH * MAP_TILE_HEIGHT;
 
+let DISPLAY_WIDTH       = 256;
+let DISPLAY_HEIGHT      = 224;
+
+let MODE7_TILE_SIZE     = 64;
+let MODE7_PERSPECTIVE_Y_OFFSET = DISPLAY_HEIGHT * 3 / 4 - 1;
+
 // All colours less than this value are considered non-solid
 let FIRST_SOLID_COLOR   = 2;
 
@@ -125,7 +131,7 @@ in shadow {
 
     // A buffer to store the head tile of the snake
     // Transferred to VRAM on every frame
-    var snake_head_tile : [u8 ; 64];
+    var snake_head_tile : [u8 ; MODE7_TILE_SIZE];
 
 
     // The next tile to update the tiles during VBlank
@@ -299,9 +305,9 @@ func wait_frame() {
     ^if a >= mode7_hdma_data.N_ROTATIONS {
         // HDMA perspective disabled
 
-        snes.ppu.bg1_scroll_x = a = <:position.x - (256 / 2 - 1);
+        snes.ppu.bg1_scroll_x = a = <:position.x - (DISPLAY_WIDTH / 2 - 1);
         snes.ppu.bg1_scroll_x = a = >:position.x -# 0;
-        snes.ppu.bg1_scroll_y = a = <:position.y - (224 / 2);
+        snes.ppu.bg1_scroll_y = a = <:position.y - (DISPLAY_HEIGHT / 2);
         snes.ppu.bg1_scroll_y = a = >:position.y -# 0;
 
         snes.ppu.mode7_center_x = 0;
@@ -322,9 +328,9 @@ func wait_frame() {
     else {
         // HDMA perspective enabled
 
-        snes.ppu.bg1_scroll_x = a = <:position.x - (256 / 2 - 1);
+        snes.ppu.bg1_scroll_x = a = <:position.x - (DISPLAY_WIDTH / 2 - 1);
         snes.ppu.bg1_scroll_x = a = >:position.x -# 0;
-        snes.ppu.bg1_scroll_y = a = <:position.y - (224 * 3 / 4 - 1);
+        snes.ppu.bg1_scroll_y = a = <:position.y - MODE7_PERSPECTIVE_Y_OFFSET;
         snes.ppu.bg1_scroll_y = a = >:position.y -# 0;
 
         snes.ppu.mode7_center_x = a = <:position.x;
@@ -387,8 +393,8 @@ func wait_frame() {
 
     // Transfer snake_head_tile buffer to VRAM
 
-    snes.ppu.vram_address_hl = xx = SNAKE_HEAD_TILE_ID * 64;
-    transfer_vram_h(#:far& snake_head_tile, &snake_head_tile as u16, sizeof(typeof(snake_head_tile)));
+    snes.ppu.vram_address_hl = xx = SNAKE_HEAD_TILE_ID * MODE7_TILE_SIZE;
+    transfer_vram_h(#:far& snake_head_tile, &snake_head_tile as u16, MODE7_TILE_SIZE);
 
 
     snes.ppu.brightness = a = 0xf;
@@ -711,7 +717,7 @@ inline func draw_snake_head_tile() {
 
         xx++;
         yy++;
-    } while yy < 64;
+    } while yy < MODE7_TILE_SIZE;
 }
 
 
