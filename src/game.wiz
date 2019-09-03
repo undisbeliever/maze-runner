@@ -557,7 +557,7 @@ inline func process_movement() {
         position.x = xx;
     }
     else if a == Direction.NONE as u8 {
-        // No not increment tile_movement_counter when direction is NONE
+        // Do not increment tile_movement_counter when direction is NONE
         tile_movement_counter--;
     }
     else {
@@ -738,7 +738,7 @@ func tile_id_to_address_in_dptmp_faraddr(tile_id : u8 in a) {
     var _addr @ &dptmp_faraddr : u16;
     _addr = xx;
 
-    // ::ANNOY no easy way to write a the bank byte of a `far *u8`::
+    // ::ANNOY no easy way to write the bank byte of a `far *u8`::
     var _far_addr @ &dptmp_faraddr : [u8 ; 3];
     _far_addr[2] = a;
 }
