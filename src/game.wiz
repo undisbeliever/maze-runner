@@ -153,13 +153,13 @@ in code {
 #[mem8, idx16]
 inline func get_map_tile(index : u16 in xx) : u8 in a {
     // ::ANNOY This is the only way to force wiz to use long addressing mode::
-    return a = ((far &map as u24) as far *u8)[xx];
+    return a = (far &map as far *u8)[xx];
 }
 
 #[mem8, idx16]
 inline func set_map_tile_imm(index : u16 in xx, value : u8 in a) {
     // ::ANNOY This is the only way to force wiz to use long addressing mode::
-    ((far &map as u24) as far *u8)[xx] = a;
+    (far &map as far *u8)[xx] = a;
 }
 
 
@@ -408,7 +408,7 @@ func wait_frame() {
 func set_map_tile(index : u16 in xx, value : u8 in a) {
 
     // ::ANNOY This is the only way to force wiz to use long addressing mode::
-    ((far &map as u24) as far *u8)[xx] = a;
+    (far &map as far *u8)[xx] = a;
 
 
     yy = vblank_tile_queue_pos;
@@ -678,7 +678,7 @@ inline func draw_snake_head_tile() {
     #[mem8, idx8] {
         // ::ANNOY this is the only way I know how to force long addressing mode::
         x = a;
-        a = ((far &snake_head_movement_tile_ids as u24) as far *u8)[x];
+        a = (far &snake_head_movement_tile_ids as far *u8)[x];
     }
     idx16();
 
@@ -694,7 +694,7 @@ inline func draw_snake_head_tile() {
 
     do {
         // ::ANNOY this is the only way I know how to force long addressing mode::
-        a = ((far &snake_movement_tiles as u24) as far *u8)[xx];
+        a = (far &snake_movement_tiles as far *u8)[xx];
         if a >= FIRST_SOLID_COLOR {
             snake_head_tile[yy] = a;
 
@@ -741,12 +741,10 @@ func tile_id_to_address_in_dptmp_faraddr(tile_id : u8 in a) {
     }
 
     // ::ANNOY no easy way to write a 16 bit value to a `far *u8`::
-    var _addr @ &dptmp_faraddr : u16;
-    _addr = xx;
+    *(&dptmp_faraddr as *u16) = xx;
 
     // ::ANNOY no easy way to write the bank byte of a `far *u8`::
-    var _far_addr @ &dptmp_faraddr : [u8 ; 3];
-    _far_addr[2] = a;
+    *((&dptmp_faraddr as u16 + 2) as *u8) = a;
 }
 
 
@@ -794,7 +792,7 @@ func lookup_dual_direction_tile(direction : u8 in a) : u8 in a {
         x = a;
 
         // ::ANNOY this is the only way I know how to force long addressing mode::
-        a = ((far &dual_direction_tiles as u24) as far *u8)[x];
+        a = (far &dual_direction_tiles as far *u8)[x];
     }
     idx16();
 
